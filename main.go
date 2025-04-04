@@ -165,6 +165,11 @@ func cleanLine(cardLine string) (string, int, error) {
 		cardLine = strings.Split(cardLine, " // ")[0]
 	}
 
+	// Pick 'em and Stick 'em Drop
+	if strings.Contains(cardLine, "Sticker Sheets") {
+		cardLine = strings.Replace(cardLine, "Sticker Sheets", "Sticker sheet", -1)
+	}
+
 	return strings.TrimSpace(cardLine), num, nil
 }
 
