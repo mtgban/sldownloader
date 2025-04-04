@@ -479,6 +479,7 @@ func run() int {
 			for _, desc := range product.Descriptions {
 				// Skip any bundle and special releases
 				if strings.Contains(desc.Title, "Bundle") ||
+					strings.Contains(desc.Title, "BUNDLE") ||
 					strings.Contains(desc.Title, "Festival in a Box") ||
 					strings.Contains(desc.Title, "Transformers TCG") ||
 					strings.Contains(desc.Title, "DRAGON’S ENDGAME") ||
