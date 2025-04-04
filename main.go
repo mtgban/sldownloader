@@ -183,6 +183,7 @@ func cleanTitle(title string) (string, string) {
 	// Unicocde characters
 	title = strings.Replace(title, " ", " ", -1)
 	title = strings.Replace(title, "’", "'", -1)
+	title = strings.Replace(title, "‘", "'", -1)
 	originalName := strings.TrimSpace(title)
 
 	// Special hack for these two drops which are marked as "foil" but are actually "foil etched"
