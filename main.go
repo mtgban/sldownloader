@@ -524,6 +524,8 @@ func run() int {
 		}
 	}
 
+	log.Println("In the future you can start from page", i-2)
+
 	return 0
 }
 
