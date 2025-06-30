@@ -229,6 +229,7 @@ func cleanTitle(title string) (string, string) {
 	// Compatibility layer
 	title = strings.Replace(title, "Regular", "", -1)
 	title = strings.Replace(title, "Dungeons and Dragons", "DD", 1)
+	title = strings.Replace(title, "DD ", "", 1)
 	title = strings.Replace(title, "Secret Lair x ", "", 1)
 	title = strings.Replace(title, "Secret Lair ", "", 1)
 	title = strings.Replace(title, "English", "", 1)
