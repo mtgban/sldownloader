@@ -219,6 +219,7 @@ func cleanTitle(title string) (string, string) {
 	title = strings.Replace(title, "!", "", -1)
 	title = strings.Replace(title, ",", "", -1)
 	title = strings.Replace(title, ".", "", -1)
+	title = strings.Replace(title, "'", "", -1)
 	title = strings.Replace(title, "(", "", -1)
 	title = strings.Replace(title, ")", "", -1)
 	title = strings.Replace(title, "   ", " ", -1)
