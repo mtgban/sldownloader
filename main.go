@@ -496,6 +496,7 @@ func run() int {
 					strings.Contains(desc.Title, "30th Anniversary Edition") ||
 					strings.Contains(desc.Title, "Japanese") ||
 					strings.Contains(desc.Title, " JP") ||
+					strings.Contains(desc.Title, " SP") ||
 					strings.Contains(desc.Title, "Countdown Kit") {
 					shouldSkip = true
 				}
