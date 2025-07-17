@@ -93,6 +93,8 @@ func cleanLine(cardLine string) (string, int, error) {
 	// Unicode characters
 	cardLine = strings.Replace(cardLine, " ", " ", -1)
 	cardLine = strings.Replace(cardLine, "’", "'", -1)
+	cardLine = strings.Replace(cardLine, "”", "\"", -1)
+	cardLine = strings.Replace(cardLine, "“", "\"", -1)
 	cardLine = strings.TrimSpace(cardLine)
 
 	fields := strings.Split(cardLine, "x ")
