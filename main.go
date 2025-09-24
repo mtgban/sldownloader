@@ -192,11 +192,6 @@ func cleanTitle(title string) (string, string) {
 	title = strings.Replace(title, "‘", "'", -1)
 	originalName := strings.TrimSpace(title)
 
-	// Special hack for these two drops which are marked as "foil" but are actually "foil etched"
-	if (strings.Contains(title, "Allied Signets") || strings.Contains(title, "Enemy Signets")) && strings.HasSuffix(title, "Foil Edition") {
-		title = strings.Replace(title, "Foil Edition", "Foil Etched Edition", 1)
-	}
-
 	// Strip dashes except for well known words
 	if !strings.Contains(title, "Middle-earth") &&
 		!strings.Contains(title, "Step-and-Compleat") &&
