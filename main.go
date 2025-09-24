@@ -237,14 +237,9 @@ func cleanTitle(title string) (string, string) {
 	title = strings.Replace(title, " EN", "", 1)
 
 	// Foil
-	title = strings.Replace(title, "Step-and-Compleat Edition", "foil", 1)
-	title = strings.Replace(title, "Textured Foil Edition", "foil", 1)
-	title = strings.Replace(title, "Galaxy Foil Edition", "foil", 1)
-	title = strings.Replace(title, "Neon Ink Foil Edition", "foil", 1)
-	title = strings.Replace(title, "Gilded Foil Edition", "foil", 1)
-	title = strings.Replace(title, "Foil Edition", "foil", 1)
-	title = strings.Replace(title, "Foil Etched Edition", "etched", 1)
-	title = strings.Replace(title, "Foil", "foil", -1)
+	if strings.HasSuffix(title, "Foil") {
+		title += " Edition"
+	}
 
 	filename := strings.TrimSpace(title)
 
