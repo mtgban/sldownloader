@@ -243,7 +243,7 @@ func cleanTitle(title string) (string, string) {
 	return filename, originalName
 }
 
-func scrapeProduct(link string) (*CardSet, error) {
+func scrapeProduct(link string, noImg bool) (*CardSet, error) {
 	resp, err := retryablehttp.Get(link)
 	if err != nil {
 		return nil, err
@@ -314,6 +314,10 @@ func scrapeProduct(link string) (*CardSet, error) {
 	}
 
 	cardSet.Cards = cards
+
+	if noImg {
+		return &cardSet, nil
+	}
 
 	// Sometimes pages have twice as many images because they are front and back,
 	// but we're interested in only the front to grab the number, so set a flag
@@ -439,6 +443,7 @@ func dumpCards(cardSet *CardSet, link, releaseDate string) error {
 
 func run() int {
 	pageOpt := flag.Int("page", 0, "Which page to start from")
+	noImgOpt := flag.Bool("noimg", false, "Skip image parsing, only dump decklists")
 	flag.Parse()
 
 	if *pageOpt == 0 {
@@ -447,7 +452,7 @@ func run() int {
 	}
 
 	for i, arg := range flag.Args() {
-		cardSet, err := scrapeProduct(arg)
+		cardSet, err := scrapeProduct(arg, *noImgOpt)
 		if err != nil {
 			log.Println("page", i, "-", err)
 			return 1
@@ -503,7 +508,7 @@ func run() int {
 			releaseDate := product.ReleaseDate.Format("2006-01-02")
 
 			link := "https://secretlair.wizards.com/us/product/" + product.ProductID
-			cardSet, err := scrapeProduct(link)
+			cardSet, err := scrapeProduct(link, *noImgOpt)
 			if err != nil {
 				log.Println("page", i-1, "-", err)
 				continue
