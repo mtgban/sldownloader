@@ -190,7 +190,6 @@ func cleanTitle(title string) (string, string) {
 	title = strings.Replace(title, " ", " ", -1)
 	title = strings.Replace(title, "’", "'", -1)
 	title = strings.Replace(title, "‘", "'", -1)
-	originalName := strings.TrimSpace(title)
 
 	// Strip dashes except for well known words
 	if !strings.Contains(title, "Middle-earth") &&
@@ -203,7 +202,6 @@ func cleanTitle(title string) (string, string) {
 	// Windows special characters
 	title = strings.Replace(title, "<", "", -1)
 	title = strings.Replace(title, ">", "", -1)
-	title = strings.Replace(title, ":", "", -1)
 	title = strings.Replace(title, "/", "", -1)
 	title = strings.Replace(title, "\\", "", -1)
 	title = strings.Replace(title, "?", "", -1)
@@ -236,6 +234,9 @@ func cleanTitle(title string) (string, string) {
 		title += " Edition"
 	}
 
+	originalName := strings.TrimSpace(title)
+
+	title = strings.Replace(title, ":", "-", -1)
 	filename := strings.TrimSpace(title)
 
 	return filename, originalName
