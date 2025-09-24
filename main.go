@@ -186,14 +186,18 @@ func cleanTitle(title string) (string, string) {
 		}
 	}
 
-	// Unicocde characters
+	// Unicode characters
 	title = strings.Replace(title, " ", " ", -1)
 	title = strings.Replace(title, "’", "'", -1)
 	title = strings.Replace(title, "‘", "'", -1)
+	title = strings.Replace(title, "®", "", -1)
+	title = strings.Replace(title, "™", "", -1)
 
 	// Strip dashes except for well known words
 	if !strings.Contains(title, "Middle-earth") &&
 		!strings.Contains(title, "Step-and-Compleat") &&
+		!strings.Contains(title, "Hard-Boiled") &&
+		!strings.Contains(title, "Spider-Man") &&
 		!strings.Contains(title, "Full-Text") &&
 		!strings.Contains(title, "Left-Handed") {
 		title = strings.Replace(title, "-", " ", -1)
@@ -204,30 +208,24 @@ func cleanTitle(title string) (string, string) {
 	title = strings.Replace(title, ">", "", -1)
 	title = strings.Replace(title, "/", "", -1)
 	title = strings.Replace(title, "\\", "", -1)
-	title = strings.Replace(title, "?", "", -1)
 	title = strings.Replace(title, "*", "", -1)
 
-	// Bad characters for yaml
-	title = strings.Replace(title, "®", "", -1)
-	title = strings.Replace(title, "™", "", -1)
-	title = strings.Replace(title, "!", "", -1)
-	title = strings.Replace(title, ",", "", -1)
-	title = strings.Replace(title, ".", "", -1)
-	title = strings.Replace(title, "'", "", -1)
-	title = strings.Replace(title, "(", "", -1)
-	title = strings.Replace(title, ")", "", -1)
+	// Spaces
 	title = strings.Replace(title, "   ", " ", -1)
 	title = strings.Replace(title, "  ", " ", -1)
-	title = strings.Replace(title, "&", "and", -1)
 
 	// Compatibility layer
 	title = strings.Replace(title, "Regular", "", -1)
-	title = strings.Replace(title, "Dungeons and Dragons", "DD", 1)
 	title = strings.Replace(title, "DD ", "", 1)
 	title = strings.Replace(title, "Secret Lair x ", "", 1)
-	title = strings.Replace(title, "Secret Lair ", "", 1)
+	title = strings.Replace(title, "(English)", "", 1)
 	title = strings.Replace(title, "English", "", 1)
 	title = strings.Replace(title, " EN", "", 1)
+
+	// "Secret Lair High" needs to stay
+	if !strings.Contains(title, "High") {
+		title = strings.Replace(title, "Secret Lair ", "", 1)
+	}
 
 	// Foil
 	if strings.HasSuffix(title, "Foil") {
