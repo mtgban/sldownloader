@@ -174,6 +174,33 @@ func cleanLine(cardLine string) (string, int, error) {
 	return strings.TrimSpace(cardLine), num, nil
 }
 
+var replacerStrings = []string{
+	// Unicode characters
+	" ", " ",
+	"’", "'",
+	"‘", "'",
+	"®", "",
+	"™", "",
+	// Windows special characters
+	"<", "",
+	">", "",
+	"/", "",
+	"\\", "",
+	"*", "",
+	// Compatibility layer
+	"Regular", "",
+	"DD ", "",
+	"Secret Lair x ", "",
+	"(English)", "",
+	"English", "",
+	" EN", "",
+	// Spaces (need to be at the end to capture as much as possible)
+	"   ", " ",
+	"  ", " ",
+}
+
+var replacer = strings.NewReplacer(replacerStrings...)
+
 // Generate two strings representing the deck name
 // The first output is a compatible, file-system safe string to be used as a filename
 // The second output is the upstream name of the deck with as few modifications as possible
@@ -186,13 +213,6 @@ func cleanTitle(title string) (string, string) {
 		}
 	}
 
-	// Unicode characters
-	title = strings.Replace(title, " ", " ", -1)
-	title = strings.Replace(title, "’", "'", -1)
-	title = strings.Replace(title, "‘", "'", -1)
-	title = strings.Replace(title, "®", "", -1)
-	title = strings.Replace(title, "™", "", -1)
-
 	// Strip dashes except for well known words
 	if !strings.Contains(title, "Middle-earth") &&
 		!strings.Contains(title, "Step-and-Compleat") &&
@@ -203,24 +223,7 @@ func cleanTitle(title string) (string, string) {
 		title = strings.Replace(title, "-", " ", -1)
 	}
 
-	// Windows special characters
-	title = strings.Replace(title, "<", "", -1)
-	title = strings.Replace(title, ">", "", -1)
-	title = strings.Replace(title, "/", "", -1)
-	title = strings.Replace(title, "\\", "", -1)
-	title = strings.Replace(title, "*", "", -1)
-
-	// Spaces
-	title = strings.Replace(title, "   ", " ", -1)
-	title = strings.Replace(title, "  ", " ", -1)
-
-	// Compatibility layer
-	title = strings.Replace(title, "Regular", "", -1)
-	title = strings.Replace(title, "DD ", "", 1)
-	title = strings.Replace(title, "Secret Lair x ", "", 1)
-	title = strings.Replace(title, "(English)", "", 1)
-	title = strings.Replace(title, "English", "", 1)
-	title = strings.Replace(title, " EN", "", 1)
+	title = replacer.Replace(title)
 
 	// "Secret Lair High" needs to stay
 	if !strings.Contains(title, "High") {
