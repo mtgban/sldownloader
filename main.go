@@ -163,14 +163,13 @@ func cleanLine(cardLine string) (string, int, error) {
 	}
 
 	// Only keep one face of the card
-	if strings.Contains(cardLine, " // ") {
-		cardLine = strings.Split(cardLine, " // ")[0]
-	}
+	cardLine = strings.Split(cardLine, " // ")[0]
 
-	// Pick 'em and Stick 'em Drop
-	if strings.Contains(cardLine, "Sticker Sheets") {
-		cardLine = strings.Replace(cardLine, "Sticker Sheets", "Sticker sheet", -1)
-	}
+	// Use upstream sheet name
+	cardLine = strings.Replace(cardLine, "Sticker Sheets", "Sticker sheet", -1)
+
+	// Typo
+	cardLine = strings.Replace(cardLine, "Xenegos", "Xenagos", -1)
 
 	return strings.TrimSpace(cardLine), num, nil
 }
