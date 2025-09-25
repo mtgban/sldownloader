@@ -446,11 +446,6 @@ func run() int {
 	noImgOpt := flag.Bool("noimg", false, "Skip image parsing, only dump decklists")
 	flag.Parse()
 
-	if *pageOpt == 0 {
-		log.Println("Missing starting -page argument")
-		return 1
-	}
-
 	for i, arg := range flag.Args() {
 		cardSet, err := scrapeProduct(arg, *noImgOpt)
 		if err != nil {
@@ -464,6 +459,11 @@ func run() int {
 			return 1
 		}
 		return 0
+	}
+
+	if *pageOpt == 0 {
+		log.Println("Missing starting -page argument")
+		return 1
 	}
 
 	i := *pageOpt
