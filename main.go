@@ -436,7 +436,7 @@ func dumpCards(cardSet *CardSet, link, releaseDate string) error {
 		fmt.Fprintf(file, "\n")
 	}
 
-	log.Println("Created", fileName)
+	log.Printf("Created '%s' (%s)", fileName, releaseDate)
 
 	return nil
 }
