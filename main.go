@@ -187,6 +187,7 @@ var replacerStrings = []string{
 	"/", "",
 	"\\", "",
 	"*", "",
+	" - ", " ",
 	// Compatibility layer
 	"Regular", "",
 	"DD ", "",
@@ -211,16 +212,6 @@ func cleanTitle(title string) (string, string) {
 		if strings.HasSuffix(ogTitle, "Foil Edition") {
 			title += " Foil Edition"
 		}
-	}
-
-	// Strip dashes except for well known words
-	if !strings.Contains(title, "Middle-earth") &&
-		!strings.Contains(title, "Step-and-Compleat") &&
-		!strings.Contains(title, "Hard-Boiled") &&
-		!strings.Contains(title, "Spider-Man") &&
-		!strings.Contains(title, "Full-Text") &&
-		!strings.Contains(title, "Left-Handed") {
-		title = strings.Replace(title, "-", " ", -1)
 	}
 
 	title = replacer.Replace(title)
