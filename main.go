@@ -221,6 +221,9 @@ func cleanTitle(title string) (string, string) {
 		title = strings.Replace(title, "Secret Lair ", "", 1)
 	}
 
+	// Fallout has too many dots and makes searching for it harder
+	title = strings.Replace(title, "S.P.E.C.I.A.L.", "SPECIAL", 1)
+
 	// Foil
 	if strings.HasSuffix(title, "Foil") {
 		title += " Edition"
