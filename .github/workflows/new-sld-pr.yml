@@ -1,0 +1,138 @@
+name: Daily Secret Lair Sync 
+
+on:
+  schedule:
+    - cron: '10 5 * * *'   # daily 05:10 UTC
+  workflow_dispatch: {}
+
+permissions: write-all
+
+env:
+  REPO_OWNER: kodawah
+  DATA_REPO: kodawah/magic-preconstructed-decks
+  UPSTREAM_REPO: taw/magic-preconstructed-decks
+  PR_BRANCH_PREFIX: auto/sld-
+  VAR_NAME: SLD_LAST_PAGE
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sldownloader repo
+        uses: actions/checkout@v4
+
+      - name: Read last page from repo variable
+        id: state
+        run: |
+          PAGE="${{ vars.SLD_LAST_PAGE }}"
+          if [ -z "$PAGE" ];
+          then
+              PAGE=1;
+          fi
+          echo "last_page=$PAGE" >> $GITHUB_OUTPUT
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.x'
+          check-latest: true
+
+      - name: Install Tesseract OCR
+        run: |
+          sudo apt-get update
+          sudo apt-get remove --purge man-db     # skip rebuilding caches
+          sudo apt-get install -y tesseract-ocr libleptonica-dev libtesseract-dev
+
+      - name: Install sldownloader
+        run: |
+          go install ./...
+
+      - name: Clone data repo fork
+        env:
+          GH_PAT: ${{ secrets.GH_SLDOWN_OPENPR_TOKEN }}
+        run: |
+          git config --global user.name  "sld-auto-bot"
+          git config --global user.email "sld-auto-bot@mtgban.com"
+          git clone --depth 1 "https://x-access-token:${GH_PAT}@github.com/${UPSTREAM_REPO}.git" 
+
+      - name: Run sldownloader
+        id: parse
+        working-directory: ./magic-preconstructed-decks/data/sld/sld/
+        run: |
+          last=""
+          while IFS= read -r line; do
+            echo "$line"
+            last="$line"
+          done < <(sldownloader -page "${{ steps.state.outputs.last_page }}")
+
+          # extract final page number from the last printed line
+          next=$(echo "$last" | awk '{print $NF}')
+
+          echo "suggested=$next" >> "$GITHUB_OUTPUT"
+          echo "Detected suggested next page: $next"
+
+      - name: Stage new deck files
+        id: stage
+        working-directory: ./magic-preconstructed-decks/
+        run: |
+          # Reset repo
+          git checkout -f
+
+          # Count untracked (new) files in the target path
+          NEW_COUNT=$(git ls-files -o --exclude-standard data/sld/sld | wc -l)
+          echo "new_count=$NEW_COUNT" >> $GITHUB_OUTPUT
+
+          if [ "$NEW_COUNT" -gt 0 ]; then
+            BRANCH="${PR_BRANCH_PREFIX}$(date -u +'%Y%m%d-%H%M%S')"
+            git checkout -b "$BRANCH"
+
+            # Add only the newly created files
+            git add data/sld/sld/*.txt
+
+            # commit
+            git commit -m "Secret Lair Drop: new decks as of $(date -u +'%Y-%m-%d')"
+
+            echo "branch=$BRANCH"  >> $GITHUB_OUTPUT
+            echo "changed=true"    >> $GITHUB_OUTPUT
+          else
+            echo "No new files found."
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Push branch to fork
+        if: ${{ steps.stage.outputs.changed == 'true' }}
+        working-directory: ./magic-preconstructed-decks
+        env:
+          GH_PAT: ${{ secrets.GH_SLDOWN_OPENPR_TOKEN }}
+        run: |
+          git push "https://x-access-token:${GH_PAT}@github.com/${DATA_REPO}.git" "${{ steps.stage.outputs.branch }}"
+
+      - name: Open PR to upstream
+        if: ${{ steps.stage.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GH_SLDOWN_OPENPR_TOKEN }}
+        run: |
+          gh pr create \
+            --repo "$UPSTREAM_REPO" \
+            --head "$REPO_OWNER:${{ steps.stage.outputs.branch }}" \
+            --base master \
+            --title "Secret Lair Deck update" \
+            --body "Automated update from sldownloader."
+
+      - name: Update repo variable with next page
+        env:
+          GH_TOKEN: ${{ secrets.GH_SLDOWN_VAR_UPD_TOKEN }}
+        run: |
+          CUR=${{ steps.state.outputs.last_page }}
+          SUG="${{ steps.parse.outputs.suggested }}"
+          if [ -n "$SUG" ];
+          then
+              NEXT="$SUG"
+          else
+              NEXT="$CUR"
+          fi
+
+          gh variable set ${VAR_NAME} --body "$NEXT"
+
+          echo "Set $VAR_NAME=$NEXT"
+
