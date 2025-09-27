@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
+	"github.com/lithammer/fuzzysearch/fuzzy"
 	"github.com/otiai10/gosseract/v2"
 )
 
@@ -237,7 +239,7 @@ func cleanTitle(title string) (string, string) {
 	return filename, originalName
 }
 
-func scrapeProduct(link string, doOCR bool) (*CardSet, error) {
+func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet, error) {
 	resp, err := retryablehttp.Get(link)
 	if err != nil {
 		return nil, err
@@ -252,6 +254,8 @@ func scrapeProduct(link string, doOCR bool) (*CardSet, error) {
 
 	title := doc.Find(`h1[class="product-title"]`).Text()
 	cardSet.Filename, cardSet.Title = cleanTitle(title)
+
+	log.Println(cardSet.Title)
 
 	var cards []CardData
 	doc.Find(`div[class="force-overflow"] ul li`).Each(func(_ int, s *goquery.Selection) {
@@ -308,6 +312,36 @@ func scrapeProduct(link string, doOCR bool) (*CardSet, error) {
 	}
 
 	cardSet.Cards = cards
+
+	foundMatch := false
+	cleanTitle := cardSet.Title
+	cleanTitle = strings.ReplaceAll(cleanTitle, " Foil Edition", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, " Raised", "")
+	cleanTitle = strings.ReplaceAll(cleanTitle, " Galaxy", "")
+
+	for _, header := range headers {
+		a := strings.ToLower(cleanTitle)
+		b := strings.ToLower(header.Title)
+		if !(fuzzy.Match(a, b) || strings.Contains(a, b) || strings.Contains(b, a)) {
+			continue
+		}
+
+		results, err := search(context.TODO(), header.URI)
+		if err != nil {
+			log.Println(err.Error())
+			continue
+		}
+
+		log.Printf("Found these possible card numbers: %+q", results)
+		for i, card := range cards {
+			cards[i].Number = results[card.Name]
+		}
+		foundMatch = true
+		break
+	}
+	if !foundMatch {
+		log.Println(cleanTitle, "was not found, no numbers available!")
+	}
 
 	if doOCR {
 		// Sometimes pages have twice as many images because they are front and back,
@@ -438,8 +472,14 @@ func run() int {
 	doOCROpt := flag.Bool("ocr", false, "Enable OCR to derive collector numbers")
 	flag.Parse()
 
+	headers, err := loadScryfallHeaders(context.Background())
+	if err != nil {
+		log.Println("Unable to query scryfall")
+		return 1
+	}
+
 	for i, arg := range flag.Args() {
-		cardSet, err := scrapeProduct(arg, *doOCROpt)
+		cardSet, err := scrapeProduct(headers, arg, *doOCROpt)
 		if err != nil {
 			log.Println("page", i, "-", err)
 			return 1
@@ -500,7 +540,7 @@ func run() int {
 			releaseDate := product.ReleaseDate.Format("2006-01-02")
 
 			link := "https://secretlair.wizards.com/us/product/" + product.ProductID
-			cardSet, err := scrapeProduct(link, *doOCROpt)
+			cardSet, err := scrapeProduct(headers, link, *doOCROpt)
 			if err != nil {
 				log.Println("page", i-1, "-", err)
 				continue
