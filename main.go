@@ -237,7 +237,7 @@ func cleanTitle(title string) (string, string) {
 	return filename, originalName
 }
 
-func scrapeProduct(link string, noImg bool) (*CardSet, error) {
+func scrapeProduct(link string, doOCR bool) (*CardSet, error) {
 	resp, err := retryablehttp.Get(link)
 	if err != nil {
 		return nil, err
@@ -309,57 +309,55 @@ func scrapeProduct(link string, noImg bool) (*CardSet, error) {
 
 	cardSet.Cards = cards
 
-	if noImg {
-		return &cardSet, nil
+	if doOCR {
+		// Sometimes pages have twice as many images because they are front and back,
+		// but we're interested in only the front to grab the number, so set a flag
+		// that makes the later chunk skip duplicated images
+		foldMode := false
+		galleryTitle := doc.Find(`h2[class="pdp_title"]`).Text()
+		if strings.Contains(galleryTitle, " (") {
+			fields := strings.Fields(galleryTitle)
+			expectedNum := fields[len(fields)-1]
+			expectedNum = strings.TrimLeft(expectedNum, "(")
+			expectedNum = strings.TrimRight(expectedNum, ")")
+			expectedNumber, _ := strconv.Atoi(expectedNum)
+			if expectedNumber/2 == len(cards) {
+				foldMode = true
+			}
+		}
+
+		// Find numbers by pulling images and OCR numbers out
+		doc.Find(`figure a`).EachWithBreak(func(i int, s *goquery.Selection) bool {
+			if foldMode {
+				i = i / 2
+			}
+			if i >= len(cards) {
+				log.Println("Found more images than loaded cards, something may be off")
+				return false
+			}
+
+			if cards[i].Number != "" {
+				return true
+			}
+
+			imgLink, found := s.Attr("href")
+			if !found {
+				return true
+			}
+			if strings.HasPrefix(imgLink, "/") {
+				imgLink = "https://secretlair.wizards.com" + imgLink
+			}
+
+			num, err := getNumberFromLink(imgLink)
+			if err != nil {
+				log.Println(imgLink, err)
+				return true
+			}
+
+			cards[i].Number = num
+			return true
+		})
 	}
-
-	// Sometimes pages have twice as many images because they are front and back,
-	// but we're interested in only the front to grab the number, so set a flag
-	// that makes the later chunk skip duplicated images
-	foldMode := false
-	galleryTitle := doc.Find(`h2[class="pdp_title"]`).Text()
-	if strings.Contains(galleryTitle, " (") {
-		fields := strings.Fields(galleryTitle)
-		expectedNum := fields[len(fields)-1]
-		expectedNum = strings.TrimLeft(expectedNum, "(")
-		expectedNum = strings.TrimRight(expectedNum, ")")
-		expectedNumber, _ := strconv.Atoi(expectedNum)
-		if expectedNumber/2 == len(cards) {
-			foldMode = true
-		}
-	}
-
-	// Find numbers by pulling images and OCR numbers out
-	doc.Find(`figure a`).EachWithBreak(func(i int, s *goquery.Selection) bool {
-		if foldMode {
-			i = i / 2
-		}
-		if i >= len(cards) {
-			log.Println("Found more images than loaded cards, something may be off")
-			return false
-		}
-
-		if cards[i].Number != "" {
-			return true
-		}
-
-		imgLink, found := s.Attr("href")
-		if !found {
-			return true
-		}
-		if strings.HasPrefix(imgLink, "/") {
-			imgLink = "https://secretlair.wizards.com" + imgLink
-		}
-
-		num, err := getNumberFromLink(imgLink)
-		if err != nil {
-			log.Println(imgLink, err)
-			return true
-		}
-
-		cards[i].Number = num
-		return true
-	})
 
 	// Validate numbers and backfill if needed
 	foundNum := 0
@@ -437,11 +435,11 @@ func dumpCards(cardSet *CardSet, link, releaseDate string) error {
 
 func run() int {
 	pageOpt := flag.Int("page", 0, "Which page to start from")
-	noImgOpt := flag.Bool("noimg", false, "Skip image parsing, only dump decklists")
+	doOCROpt := flag.Bool("ocr", false, "Enable OCR to derive collector numbers")
 	flag.Parse()
 
 	for i, arg := range flag.Args() {
-		cardSet, err := scrapeProduct(arg, *noImgOpt)
+		cardSet, err := scrapeProduct(arg, *doOCROpt)
 		if err != nil {
 			log.Println("page", i, "-", err)
 			return 1
@@ -502,7 +500,7 @@ func run() int {
 			releaseDate := product.ReleaseDate.Format("2006-01-02")
 
 			link := "https://secretlair.wizards.com/us/product/" + product.ProductID
-			cardSet, err := scrapeProduct(link, *noImgOpt)
+			cardSet, err := scrapeProduct(link, *doOCROpt)
 			if err != nil {
 				log.Println("page", i-1, "-", err)
 				continue
