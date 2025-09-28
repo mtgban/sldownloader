@@ -524,6 +524,8 @@ func run() int {
 					strings.Contains(desc.Title, "They're Just Like Us but") ||
 					strings.Contains(desc.Title, "Heads I Win, Tails") ||
 					strings.Contains(desc.Title, "Deluxe Collection") ||
+					strings.Contains(desc.Title, "Heroes of the Borderlands") ||
+					strings.Contains(desc.Title, "Welcome to the Hellfire Club") ||
 					strings.Contains(desc.Title, "D&D Sapphire Anniversary") ||
 					strings.Contains(desc.Title, "30th Anniversary Edition") ||
 					strings.Contains(desc.Title, "Japanese") ||
