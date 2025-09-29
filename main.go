@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -382,6 +383,10 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 	if !foundMatch {
 		log.Println(cleanTitle, "was not found, no numbers available!")
 	}
+
+	sort.Slice(cards, func(i, j int) bool {
+		return cards[i].Number < cards[j].Number
+	})
 
 	cardSet.Cards = cards
 
