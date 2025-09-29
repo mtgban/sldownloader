@@ -474,7 +474,17 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 			cn, _ := strconv.Atoi(strings.TrimLeft(num, "0"))
 			if cn > 0 {
 				for j := range cards {
-					cards[j].Number = fmt.Sprint(cn + j - pos)
+					if cards[j].Number != "" {
+						continue
+					}
+					num = fmt.Sprint(cn + j - pos)
+
+					res, err := search(context.TODO(), fmt.Sprintf("%s cn:%s", cards[j].Name, num))
+					if err != nil || len(res) == 0 {
+						log.Println("validation failed:", err)
+						continue
+					}
+					cards[j].Number = num
 				}
 			}
 		} else {
