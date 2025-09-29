@@ -126,6 +126,8 @@ func cleanLine(cardLine string) (string, int, error) {
 	// Remove this tag except for the cards with Phyrexian in them
 	if !strings.Contains(cardLine, "Tower") &&
 		!strings.Contains(cardLine, "Crusader") &&
+		!strings.Contains(cardLine, "Metamorph") &&
+		!strings.Contains(cardLine, "Reclamation") &&
 		!strings.Contains(cardLine, "Unlife") {
 		cardLine = strings.Replace(cardLine, "Phyrexian", "", -1)
 	}
@@ -172,6 +174,8 @@ func cleanLine(cardLine string) (string, int, error) {
 
 	// Typo
 	cardLine = strings.Replace(cardLine, "Xenegos", "Xenagos", -1)
+	cardLine = strings.Replace(cardLine, "Death Render", "Deathrender", -1)
+	cardLine = strings.Replace(cardLine, "All is Dust", "All Is Dust", -1)
 
 	return strings.TrimSpace(cardLine), num, nil
 }
@@ -191,6 +195,8 @@ var replacerStrings = []string{
 	"*", "",
 	" - ", " ",
 	// Compatibility layer
+	" Is in ", " is in ",
+	" is In ", " is in ",
 	"Regular", "",
 	"DD ", "",
 	"Secret Lair x ", "",
