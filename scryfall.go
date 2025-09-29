@@ -53,13 +53,15 @@ func loadScryfallHeaders(ctx context.Context) ([]scryfallHeader, error) {
 }
 
 // Make a search call rebuilding the query used in the headers
-func search(ctx context.Context, uri string) ([]CardData, error) {
+func searchURI(ctx context.Context, uri string) ([]CardData, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
 	}
-	query := u.Query().Get("q")
+	return search(ctx, u.Query().Get("q"))
+}
 
+func search(ctx context.Context, query string) ([]CardData, error) {
 	client, err := scryfall.NewClient()
 	if err != nil {
 		return nil, err

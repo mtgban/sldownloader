@@ -349,7 +349,7 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 			continue
 		}
 
-		results, err := search(context.TODO(), header.URI)
+		results, err := searchURI(context.TODO(), header.URI)
 		if err != nil {
 			log.Println(err.Error())
 			continue
@@ -381,7 +381,8 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 		break
 	}
 	if !foundMatch {
-		log.Println(cleanTitle, "was not found, no numbers available!")
+		log.Println(cleanTitle, "was not found, will try OCR")
+		doOCR = true
 	}
 
 	sort.Slice(cards, func(i, j int) bool {
@@ -432,6 +433,12 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 			num, err := getNumberFromLink(imgLink)
 			if err != nil {
 				log.Println(imgLink, err)
+				return true
+			}
+
+			res, err := search(context.TODO(), fmt.Sprintf("%s cn:%s", cards[i].Name, num))
+			if err != nil || len(res) == 0 {
+				log.Println("validation failed:", err)
 				return true
 			}
 
