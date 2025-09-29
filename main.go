@@ -245,6 +245,35 @@ func cleanTitle(title string) (string, string) {
 	return filename, originalName
 }
 
+func processLine(cards []CardData, title, line string) error {
+	var card CardData
+
+	if line == "" {
+		return nil
+	}
+
+	cardLine, num, err := cleanLine(line)
+	if err != nil {
+		return err
+	}
+
+	card.Foil = strings.Contains(strings.ToLower(line), "foil")
+	card.Etched = strings.Contains(strings.ToLower(line), "etched")
+	card.Token = strings.Contains(strings.ToLower(line), "token")
+	card.Name = cardLine
+	for i := 0; i < num; i++ {
+		log.Printf("'%s'", card.Name)
+		cards = append(cards, card)
+
+		// Special hack for this set
+		if strings.Contains(title, "Astrology Lands") {
+			break
+		}
+	}
+
+	return nil
+}
+
 func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet, error) {
 	resp, err := retryablehttp.Get(link)
 	if err != nil {
@@ -265,27 +294,10 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 
 	var cards []CardData
 	doc.Find(`div[class="force-overflow"] ul li`).Each(func(_ int, s *goquery.Selection) {
-		var card CardData
-
 		line := s.Text()
-		cardLine, num, err := cleanLine(line)
+		err := processLine(cards, title, line)
 		if err != nil {
-			log.Printf("%s - %s", cardLine, err.Error())
-			return
-		}
-
-		card.Foil = strings.Contains(strings.ToLower(line), "foil")
-		card.Etched = strings.Contains(strings.ToLower(line), "etched")
-		card.Token = strings.Contains(strings.ToLower(line), "token")
-		card.Name = cardLine
-		for i := 0; i < num; i++ {
-			log.Printf("'%s'", card.Name)
-			cards = append(cards, card)
-
-			// Special hack for this set
-			if strings.Contains(title, "Astrology Lands") {
-				break
-			}
+			log.Printf("%s - %s", line, err.Error())
 		}
 	})
 
@@ -293,28 +305,15 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 		// Fallback if there were no bullet points
 		productInfo, _ := doc.Find(`div[id="collapse2"] div[class="force-overflow"] p[class="product-information"]`).Html()
 		for _, line := range strings.Split(productInfo, "<br/>") {
-			var card CardData
-
-			cardLine, num, err := cleanLine(line)
+			err := processLine(cards, title, line)
 			if err != nil {
-				continue
+				log.Printf("%s - %s", line, err.Error())
 			}
+		}
+	}
 
-			card.Foil = strings.Contains(strings.ToLower(line), "foil")
-			card.Etched = strings.Contains(strings.ToLower(line), "etched")
-			card.Token = strings.Contains(strings.ToLower(line), "token")
-			card.Name = cardLine
-			for i := 0; i < num; i++ {
-				log.Printf("'%s'", card.Name)
-				cards = append(cards, card)
-				if strings.Contains(title, "Astrology Lands") {
-					break
-				}
-			}
-		}
-		if len(cards) == 0 {
-			return nil, errors.New("no cards found")
-		}
+	if len(cards) == 0 {
+		return nil, errors.New("no cards found")
 	}
 
 	cardSet.Cards = cards
