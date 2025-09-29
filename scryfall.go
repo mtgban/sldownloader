@@ -53,7 +53,7 @@ func loadScryfallHeaders(ctx context.Context) ([]scryfallHeader, error) {
 }
 
 // Make a search call rebuilding the query used in the headers
-func search(ctx context.Context, uri string) (map[string]string, error) {
+func search(ctx context.Context, uri string) ([]CardData, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func search(ctx context.Context, uri string) (map[string]string, error) {
 	so := scryfall.SearchCardsOptions{
 		Unique:        scryfall.UniqueModePrints,
 		Order:         scryfall.OrderSet,
-		Dir:           scryfall.DirDesc,
+		Dir:           scryfall.DirAsc, // Order by CNs
 		IncludeExtras: true,
 	}
 	result, err := client.SearchCards(ctx, query, so)
@@ -76,7 +76,7 @@ func search(ctx context.Context, uri string) (map[string]string, error) {
 		return nil, err
 	}
 
-	out := map[string]string{}
+	var out []CardData
 	for _, card := range result.Cards {
 		// Make sure to exclude bonus cards, they are tracked elsewhere
 		if slices.Contains(card.PromoTypes, "sldbonus") {
@@ -90,11 +90,16 @@ func search(ctx context.Context, uri string) (map[string]string, error) {
 		// Only preserve one chunk of the card
 		name := strings.Split(card.Name, " // ")[0]
 
-		out[name] = card.CollectorNumber
+		number := card.CollectorNumber
 		// Special case since upstream treates faces differently
 		if len(card.CardFaces) > 0 {
-			out[name] += "a"
+			number += "a"
 		}
+
+		out = append(out, CardData{
+			Name:   name,
+			Number: number,
+		})
 	}
 
 	return out, nil

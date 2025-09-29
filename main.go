@@ -335,8 +335,6 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 		return nil, errors.New("no cards found")
 	}
 
-	cardSet.Cards = cards
-
 	foundMatch := false
 	cleanTitle := cardSet.Title
 	cleanTitle = strings.ReplaceAll(cleanTitle, " Foil Edition", "")
@@ -357,8 +355,26 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 		}
 
 		log.Printf("Found these possible card numbers: %+q", results)
-		for i, card := range cards {
-			cards[i].Number = results[card.Name]
+		if len(results) != len(cards) {
+			log.Println("... but the contents differ, we trust Scryfall...")
+			for i := range results {
+				results[i].Foil = cards[0].Foil
+				results[i].Etched = cards[0].Etched
+				results[i].Count = 1
+			}
+			cards = results
+		} else {
+			for i := range cards {
+				for j := range results {
+					if results[j].Number != "" && cards[i].Name == results[j].Name {
+						cards[i].Number = results[j].Number
+
+						// Reset so we can skip on reuse
+						results[j].Number = ""
+						break
+					}
+				}
+			}
 		}
 		foundMatch = true
 		break
@@ -366,6 +382,8 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 	if !foundMatch {
 		log.Println(cleanTitle, "was not found, no numbers available!")
 	}
+
+	cardSet.Cards = cards
 
 	if doOCR {
 		// Sometimes pages have twice as many images because they are front and back,
@@ -501,6 +519,7 @@ func run() int {
 		log.Println("Unable to query scryfall")
 		return 1
 	}
+	log.Println("Parsed Scryfall set page,", len(headers), "products found")
 
 	for i, arg := range flag.Args() {
 		cardSet, err := scrapeProduct(headers, arg, *doOCROpt)
