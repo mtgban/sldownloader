@@ -96,9 +96,13 @@ func search(ctx context.Context, uri string) ([]CardData, error) {
 			number += "a"
 		}
 
+		// In case we need it for later
+		isToken := strings.Contains(card.TypeLine, "Token")
+
 		out = append(out, CardData{
 			Name:   name,
 			Number: number,
+			Token:  isToken,
 		})
 	}
 
