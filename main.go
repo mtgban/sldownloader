@@ -473,13 +473,17 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 	return &cardSet, nil
 }
 
-func dumpCards(cardSet *CardSet, link, releaseDate string) error {
-	fileName := cardSet.Filename + ".txt"
-	file, err := os.Create(fileName)
-	if err != nil {
-		return err
+func dumpCards(cardSet *CardSet, link, releaseDate, filename string) error {
+	var file io.Writer = os.Stdout
+	if filename != "" {
+		filename = filename + ".txt"
+		theFile, err := os.Create(filename)
+		if err != nil {
+			return err
+		}
+		defer theFile.Close()
+		file = theFile
 	}
-	defer file.Close()
 
 	fmt.Fprintf(file, "// NAME: %s\n", cardSet.Title)
 	fmt.Fprintf(file, "// SOURCE: %s\n", link)
@@ -504,7 +508,9 @@ func dumpCards(cardSet *CardSet, link, releaseDate string) error {
 		fmt.Fprintf(file, "\n")
 	}
 
-	log.Printf("Created '%s' (%s)", fileName, releaseDate)
+	if filename != "" {
+		log.Printf("Created '%s' (%s)", filename, releaseDate)
+	}
 
 	return nil
 }
@@ -528,7 +534,7 @@ func run() int {
 			return 1
 		}
 
-		err = dumpCards(cardSet, arg, "")
+		err = dumpCards(cardSet, arg, "", "")
 		if err != nil {
 			log.Println(err)
 			return 1
@@ -591,7 +597,7 @@ func run() int {
 				continue
 			}
 
-			err = dumpCards(cardSet, link, releaseDate)
+			err = dumpCards(cardSet, link, releaseDate, cardSet.Filename)
 			if err != nil {
 				log.Println(err)
 				continue
