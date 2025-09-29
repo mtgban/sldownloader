@@ -88,6 +88,7 @@ type CardData struct {
 	Foil   bool
 	Etched bool
 	Token  bool
+	Count  int
 }
 
 // Derive the card name, removing any special tag
@@ -245,33 +246,51 @@ func cleanTitle(title string) (string, string) {
 	return filename, originalName
 }
 
-func processLine(cards []CardData, title, line string) error {
+// In case of error, the input cards is returned as is, so this fuction can be
+// reused in a loop multiple times
+func processLine(cards []CardData, line string) ([]CardData, error) {
 	var card CardData
 
 	if line == "" {
-		return nil
+		return cards, nil
 	}
 
 	cardLine, num, err := cleanLine(line)
 	if err != nil {
-		return err
+		return cards, err
 	}
 
 	card.Foil = strings.Contains(strings.ToLower(line), "foil")
 	card.Etched = strings.Contains(strings.ToLower(line), "etched")
 	card.Token = strings.Contains(strings.ToLower(line), "token")
 	card.Name = cardLine
-	for i := 0; i < num; i++ {
-		log.Printf("'%s'", card.Name)
-		cards = append(cards, card)
+	card.Count = num
 
-		// Special hack for this set
-		if strings.Contains(title, "Astrology Lands") {
-			break
+	if strings.Contains(line, "Different") {
+		for i := 0; i < num; i++ {
+			card.Count = 1
+			cards = append(cards, card)
+			log.Printf("1x %s", card.Name)
+		}
+	} else {
+		// Check if the card was already inserted, if so increase count, else just add it
+		idx := -1
+		for i := range cards {
+			if cards[i].Name == card.Name {
+				idx = i
+				break
+			}
+		}
+		if idx != -1 {
+			cards[idx].Count += num
+			log.Printf("0x %s (increased previous count)", card.Name)
+		} else {
+			cards = append(cards, card)
+			log.Printf("%dx %s", card.Count, card.Name)
 		}
 	}
 
-	return nil
+	return cards, nil
 }
 
 func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet, error) {
@@ -295,7 +314,7 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 	var cards []CardData
 	doc.Find(`div[class="force-overflow"] ul li`).Each(func(_ int, s *goquery.Selection) {
 		line := s.Text()
-		err := processLine(cards, title, line)
+		cards, err = processLine(cards, line)
 		if err != nil {
 			log.Printf("%s - %s", line, err.Error())
 		}
@@ -305,7 +324,7 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 		// Fallback if there were no bullet points
 		productInfo, _ := doc.Find(`div[id="collapse2"] div[class="force-overflow"] p[class="product-information"]`).Html()
 		for _, line := range strings.Split(productInfo, "<br/>") {
-			err := processLine(cards, title, line)
+			cards, err = processLine(cards, line)
 			if err != nil {
 				log.Printf("%s - %s", line, err.Error())
 			}
@@ -453,7 +472,7 @@ func dumpCards(cardSet *CardSet, link, releaseDate string) error {
 		if card.Number != "" {
 			card.Number = ":" + card.Number
 		}
-		fmt.Fprintf(file, "1 [SLD%s] %s", card.Number, card.Name)
+		fmt.Fprintf(file, "%d [SLD%s] %s", card.Count, card.Number, card.Name)
 		if card.Foil {
 			fmt.Fprintf(file, " [foil]")
 		}
