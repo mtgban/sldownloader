@@ -583,6 +583,8 @@ func run() int {
 		}
 
 		for _, product := range resp.Products {
+			releaseDate := product.ReleaseDate.Format("2006-01-02")
+
 			shouldSkip := false
 			for _, desc := range product.Descriptions {
 				// Skip any bundle and special releases
@@ -604,13 +606,13 @@ func run() int {
 					strings.Contains(desc.Title, " SP") ||
 					strings.Contains(desc.Title, "Countdown Kit") {
 					shouldSkip = true
+					fmt.Printf("\"%s\",%s\n", desc.Title, releaseDate)
+					break
 				}
 			}
 			if shouldSkip {
 				continue
 			}
-
-			releaseDate := product.ReleaseDate.Format("2006-01-02")
 
 			link := "https://secretlair.wizards.com/us/product/" + product.ProductID
 			cardSet, err := scrapeProduct(headers, link, *doOCROpt)
