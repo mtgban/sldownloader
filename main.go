@@ -130,6 +130,7 @@ func cleanLine(cardLine string) (string, int, error) {
 		!strings.Contains(cardLine, "Crusader") &&
 		!strings.Contains(cardLine, "Metamorph") &&
 		!strings.Contains(cardLine, "Reclamation") &&
+		!strings.Contains(cardLine, "Arena") &&
 		!strings.Contains(cardLine, "Unlife") {
 		cardLine = strings.Replace(cardLine, "Phyrexian", "", -1)
 	}
