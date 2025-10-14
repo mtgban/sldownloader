@@ -112,14 +112,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_SLDOWN_OPENPR_TOKEN }}
         run: |
-          gh pr create \
-            --repo "$UPSTREAM_REPO" \
-            --head "$REPO_OWNER:${{ steps.stage.outputs.branch }}" \
-            --base master \
-            --title "Secret Lair Deck update" \
-            --body "Automated update from sldownloader."
+          TITLE="Secret Lair Drop update"
+
+          if ! gh pr list --repo "$UPSTREAM_REPO" --state open --search "$TITLE" --limit 1 | grep -q .;
+          then
+            gh pr create \
+              --repo "$UPSTREAM_REPO" \
+              --head "$REPO_OWNER:${{ steps.stage.outputs.branch }}" \
+              --base master \
+              --title "$TITLE" \
+              --body "Automated update from sldownloader."
+            echo "update=true" >> $GITHUB_OUTPUT
+          else
+            echo "A PR with the same name is already open, skipping"
+            echo "update=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Update repo variable with next page
+        if: ${{ steps.stage.outputs.update == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GH_SLDOWN_VAR_UPD_TOKEN }}
         run: |
