@@ -190,6 +190,9 @@ var replacerStrings = []string{
 	"‘", "'",
 	"®", "",
 	"™", "",
+	// Non-visible unicode white spaces
+	"\uFEFF", "",
+	"\u200B", "",
 	// Windows special characters
 	"<", "",
 	">", "",
