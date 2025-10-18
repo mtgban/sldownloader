@@ -82,7 +82,8 @@ jobs:
           NEW_COUNT=$(git ls-files -o --exclude-standard data/sld/sld | wc -l)
           echo "new_count=$NEW_COUNT" >> $GITHUB_OUTPUT
 
-          if [ "$NEW_COUNT" -gt 0 ]; then
+          if [ "$NEW_COUNT" -gt 0 ];
+          then
             BRANCH="${PR_BRANCH_PREFIX}$(date -u +'%Y%m%d-%H%M%S')"
             git checkout -b "$BRANCH"
 
@@ -92,8 +93,8 @@ jobs:
             # commit
             git commit -m "Secret Lair Drop: new decks as of $(date -u +'%Y-%m-%d')"
 
-            echo "branch=$BRANCH"  >> $GITHUB_OUTPUT
-            echo "changed=true"    >> $GITHUB_OUTPUT
+            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+            echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "No new files found."
             echo "changed=false" >> $GITHUB_OUTPUT
