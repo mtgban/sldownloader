@@ -144,6 +144,7 @@ func cleanLine(cardLine string) (string, int, error) {
 		"Different", "Hand-Drawn", "Borderless",
 		"Showcase", "Left-Handed", "Edition", "cards", "Japanese",
 		"Regular Human Guy", "Ichor-E", "DFC", "Italian-language", "*",
+		"REVERSIBLE",
 	} {
 		cardLine = strings.Replace(cardLine, tag, "", -1)
 		cardLine = strings.Replace(cardLine, strings.ToLower(tag), "", -1)
