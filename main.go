@@ -221,11 +221,17 @@ var replacer = strings.NewReplacer(replacerStrings...)
 // The first output is a compatible, file-system safe string to be used as a filename
 // The second output is the upstream name of the deck with as few modifications as possible
 func cleanTitle(title string) (string, string) {
+	// Keep only the relevant portion of the name, ie we can strip "Extra Life"
+	// but not Avatar, when the name is separated by a pipe
 	if strings.Contains(title, "|") {
 		ogTitle := title
-		title = strings.Split(title, " | ")[0]
-		if strings.HasSuffix(ogTitle, "Foil Edition") {
-			title += " Foil Edition"
+		title = strings.Replace(title, " |", ":", 1)
+
+		if strings.Contains(ogTitle, "Extra Life") {
+			title = strings.Split(ogTitle, " | ")[0]
+			if strings.HasSuffix(ogTitle, "Foil Edition") {
+				title += " Foil Edition"
+			}
 		}
 	}
 
