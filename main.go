@@ -235,6 +235,10 @@ func cleanTitle(title string) (string, string) {
 		}
 	}
 
+	// Remove pricing from the title
+	title = strings.Split(title, " $")[0]
+
+	// Clean up!
 	title = replacer.Replace(title)
 
 	// "Secret Lair High" needs to stay
