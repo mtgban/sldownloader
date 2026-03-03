@@ -183,6 +183,8 @@ func cleanLine(cardLine string) (string, int, error) {
 	cardLine = strings.Replace(cardLine, "Xenegos", "Xenagos", -1)
 	cardLine = strings.Replace(cardLine, "Death Render", "Deathrender", -1)
 	cardLine = strings.Replace(cardLine, "All is Dust", "All Is Dust", -1)
+	cardLine = strings.Replace(cardLine, "Mistep", "Misstep", -1)
+	cardLine = strings.Replace(cardLine, "Triumph of Hordes", "Triumph of the Hordes", -1)
 
 	return strings.TrimSpace(cardLine), num, nil
 }
