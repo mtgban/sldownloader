@@ -169,6 +169,9 @@ func cleanLine(cardLine string) (string, int, error) {
 	if strings.Contains(cardLine, "//") && !strings.Contains(cardLine, " // ") {
 		cardLine = strings.Replace(cardLine, "//", " // ", -1)
 	}
+	if strings.Contains(cardLine, " / ") && !strings.Contains(cardLine, " // ") {
+		cardLine = strings.Replace(cardLine, " / ", " // ", -1)
+	}
 
 	// Only keep one face of the card
 	cardLine = strings.Split(cardLine, " // ")[0]
