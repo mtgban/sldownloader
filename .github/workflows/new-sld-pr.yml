@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sldownloader repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Read last page from repo variable
         id: state
@@ -32,7 +32,7 @@ jobs:
           echo "last_page=$PAGE" >> $GITHUB_OUTPUT
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: '1.24.x'
           check-latest: true
