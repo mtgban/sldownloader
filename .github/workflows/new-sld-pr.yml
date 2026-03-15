@@ -110,6 +110,7 @@ jobs:
           git push "https://x-access-token:${GH_PAT}@github.com/${DATA_REPO}.git" "${{ steps.stage.outputs.branch }}"
 
       - name: Open PR to upstream
+        id: open_pr
         if: ${{ steps.stage.outputs.changed == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GH_SLDOWN_OPENPR_TOKEN }}
@@ -131,7 +132,7 @@ jobs:
           fi
 
       - name: Update repo variable with next page
-        if: ${{ steps.stage.outputs.update == 'true' }}
+        if: ${{ steps.open_pr.outputs.update == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GH_SLDOWN_VAR_UPD_TOKEN }}
         run: |
