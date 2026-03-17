@@ -613,7 +613,7 @@ func run() int {
 					strings.Contains(desc.Title, "Festival in a Box") ||
 					strings.Contains(desc.Title, "Transformers TCG") ||
 					strings.Contains(desc.Title, "DRAGON’S ENDGAME") ||
-					strings.Contains(desc.Title, "Secret Lair Commander Deck") ||
+					(strings.Contains(desc.Title, "Secret Lair") && strings.Contains(desc.Title, "Deck")) ||
 					strings.Contains(desc.Title, "They're Just Like Us but") ||
 					strings.Contains(desc.Title, "Heads I Win, Tails") ||
 					strings.Contains(desc.Title, "Deluxe Collection") ||
