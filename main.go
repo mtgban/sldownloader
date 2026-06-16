@@ -155,11 +155,6 @@ func cleanLine(cardLine string) (string, int, error) {
 		cardLine = strings.Split(cardLine, " as ")[0]
 	}
 
-	// There is no card with " by " yet...
-	if strings.Contains(cardLine, " by ") {
-		cardLine = strings.Split(cardLine, " by ")[0]
-	}
-
 	// Bob Ross Drop
 	if strings.Contains(cardLine, " with art") {
 		cardLine = strings.Split(cardLine, " with art")[0]
