@@ -1,6 +1,6 @@
 module sldownloader
 
-go 1.23.0
+go 1.25.0
 
 require (
 	github.com/BlueMonday/go-scryfall v0.9.1
@@ -16,6 +16,6 @@ require (
 	github.com/andybalholm/cascadia v1.3.2 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	go.uber.org/ratelimit v0.2.0 // indirect
-	golang.org/x/net v0.38.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
+	golang.org/x/text v0.37.0 // indirect
 )
