@@ -615,6 +615,7 @@ func run() int {
 					strings.Contains(desc.Title, "Heroes of the Borderlands") ||
 					strings.Contains(desc.Title, "Welcome to the Hellfire Club") ||
 					strings.Contains(desc.Title, "D&D Sapphire Anniversary") ||
+					strings.Contains(desc.Title, "Fan Merch") ||
 					strings.Contains(desc.Title, "30th Anniversary Edition") ||
 					strings.Contains(desc.Title, "Japanese") ||
 					strings.Contains(desc.Title, " JP") ||
