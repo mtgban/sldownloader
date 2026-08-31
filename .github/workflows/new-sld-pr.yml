@@ -130,6 +130,11 @@ jobs:
             echo "update=true" >> $GITHUB_OUTPUT
           else
             echo "A PR with the same name is already open, skipping"
+
+            # Remove the branch we just pushed, it would only pile up unused
+            gh api -X DELETE "repos/${DATA_REPO}/git/refs/heads/${{ steps.stage.outputs.branch }}" \
+              || echo "Could not delete the pushed branch, continuing"
+
             echo "update=false" >> $GITHUB_OUTPUT
           fi
 
@@ -157,4 +162,4 @@ jobs:
     permissions:
       actions: write
     steps:
-      - uses: liskin/gh-workflow-keepalive@v1
+      - uses: liskin/gh-workflow-keepalive@f72ff1a1336129f29bf0166c0fd0ca6cf1bcb38c # v1
