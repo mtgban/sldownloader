@@ -6,14 +6,37 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/BlueMonday/go-scryfall"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-cleanhttp"
+	"go.uber.org/ratelimit"
 )
 
 const scryfallURL = "https://scryfall.com/sets/sld"
 const titleClass = ".card-grid-header-content"
+
+// Scryfall requires staying below 10 requests per second, stay under with margin
+const scryfallReqPerSecond = 8
+
+// The rate limiter lives on the client, so a single shared client is needed
+// for it to actually pace requests across calls
+var (
+	scryfallClientOnce sync.Once
+	scryfallClient     *scryfall.Client
+	scryfallClientErr  error
+)
+
+func getScryfallClient() (*scryfall.Client, error) {
+	scryfallClientOnce.Do(func() {
+		scryfallClient, scryfallClientErr = scryfall.NewClient(
+			scryfall.WithUserAgent("sldownloader/1.0"),
+			scryfall.WithLimiter(ratelimit.New(scryfallReqPerSecond)),
+		)
+	})
+	return scryfallClient, scryfallClientErr
+}
 
 type scryfallHeader struct {
 	Title string
@@ -62,7 +85,7 @@ func searchURI(ctx context.Context, uri string) ([]CardData, error) {
 }
 
 func search(ctx context.Context, query string) ([]CardData, error) {
-	client, err := scryfall.NewClient()
+	client, err := getScryfallClient()
 	if err != nil {
 		return nil, err
 	}
