@@ -27,3 +27,7 @@ go.work.sum
 
 # resulting files
 *.txt
+out.csv
+
+# macOS noise
+.DS_Store

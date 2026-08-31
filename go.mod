@@ -1,4 +1,4 @@
-module sldownloader
+module github.com/mtgban/sldownloader
 
 go 1.25.0
 
