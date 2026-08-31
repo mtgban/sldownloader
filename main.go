@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -92,6 +93,42 @@ type CardData struct {
 	Count  int
 }
 
+// Random prefixes to remove from card names
+var nameTags = []string{
+	"Full-Text", "Full-Art", "Full-art", "Alt-Art",
+	"Reversible", "Old Frame", "Retro Frame",
+	"Poster", "Stained Glass",
+	"Foil-etched", "Etched", "Foil", "Tokens", "Token",
+	"Different", "Hand-Drawn", "Borderless",
+	"Showcase", "Left-Handed", "Edition", "cards", "Japanese",
+	"Regular Human Guy", "Ichor-E", "DFC", "Italian-language", "*",
+	"REVERSIBLE",
+}
+
+// Match tags on word boundaries only, so that eg "Edition" does not eat into
+// "Expedition", covering both the original and the lowercase form of each tag
+var nameTagRegexps = func() []*regexp.Regexp {
+	isWordChar := func(c byte) bool {
+		return c == '_' || ('0' <= c && c <= '9') ||
+			('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z')
+	}
+	regexps := make([]*regexp.Regexp, 0, len(nameTags))
+	for _, tag := range nameTags {
+		pattern := regexp.QuoteMeta(tag)
+		if lower := strings.ToLower(tag); lower != tag {
+			pattern = "(?:" + pattern + "|" + regexp.QuoteMeta(lower) + ")"
+		}
+		if isWordChar(tag[0]) {
+			pattern = `\b` + pattern
+		}
+		if isWordChar(tag[len(tag)-1]) {
+			pattern += `\b`
+		}
+		regexps = append(regexps, regexp.MustCompile(pattern))
+	}
+	return regexps
+}()
+
 // Derive the card name, removing any special tag
 func cleanLine(cardLine string) (string, int, error) {
 	// Unicode characters
@@ -101,7 +138,8 @@ func cleanLine(cardLine string) (string, int, error) {
 	cardLine = strings.Replace(cardLine, "“", "\"", -1)
 	cardLine = strings.TrimSpace(cardLine)
 
-	fields := strings.Split(cardLine, "x ")
+	// Only split on the first separator, card names may contain "x " too
+	fields := strings.SplitN(cardLine, "x ", 2)
 	if len(fields) != 2 {
 		return "", 0, errors.New("unexpected line format")
 	}
@@ -118,8 +156,9 @@ func cleanLine(cardLine string) (string, int, error) {
 	}
 
 	// Remove everything before "Foil" to catch variants like Galaxy Textured etc,
-	// as long as they are before the card name
-	if strings.Contains(cardLine, "Foil") &&
+	// as long as they are before the card name and not part of the name itself
+	if strings.Contains(cardLine, "Foil") && cardLine != "Foil" &&
+		!strings.Contains(cardLine, "Foil to Conspiracy") &&
 		!strings.HasSuffix(cardLine, "Foil Edition") && !strings.HasSuffix(cardLine, "Foil Etched") {
 		fields := strings.Split(cardLine, "Foil")
 		cardLine = fields[1]
@@ -135,19 +174,25 @@ func cleanLine(cardLine string) (string, int, error) {
 		cardLine = strings.Replace(cardLine, "Phyrexian", "", -1)
 	}
 
-	// Remove random prefixes from card names
-	for _, tag := range []string{
-		"Full-Text", "Full-Art", "Full-art", "Alt-Art",
-		"Reversible", "Old Frame", "Retro Frame",
-		"Poster", "Stained Glass",
-		"Foil-etched", "Etched", "Foil", "Tokens", "Token",
-		"Different", "Hand-Drawn", "Borderless",
-		"Showcase", "Left-Handed", "Edition", "cards", "Japanese",
-		"Regular Human Guy", "Ichor-E", "DFC", "Italian-language", "*",
-		"REVERSIBLE",
+	// Some real card names contain a tag word, do not strip it from those
+	keepEtched := false
+	for _, name := range []string{
+		"Etched Champion", "Etched Cornfield", "Etched Familiar",
+		"Etched Host", "Etched Monstrosity", "Etched Oracle", "Etched Slith",
 	} {
-		cardLine = strings.Replace(cardLine, tag, "", -1)
-		cardLine = strings.Replace(cardLine, strings.ToLower(tag), "", -1)
+		if strings.Contains(cardLine, name) {
+			keepEtched = true
+			break
+		}
+	}
+	keepFoil := cardLine == "Foil" || strings.Contains(cardLine, "Foil to Conspiracy")
+
+	// Remove random prefixes from card names
+	for i, tag := range nameTags {
+		if (keepEtched && tag == "Etched") || (keepFoil && tag == "Foil") {
+			continue
+		}
+		cardLine = nameTagRegexps[i].ReplaceAllString(cardLine, "")
 	}
 
 	// Remove flavor names
@@ -292,7 +337,7 @@ func processLine(cards []CardData, line string) ([]CardData, error) {
 		// Check if the card was already inserted, if so increase count, else just add it
 		idx := -1
 		for i := range cards {
-			if cards[i].Name == card.Name {
+			if cards[i].Name == card.Name && cards[i].Foil == card.Foil && cards[i].Etched == card.Etched {
 				idx = i
 				break
 			}
@@ -307,6 +352,20 @@ func processLine(cards []CardData, line string) ([]CardData, error) {
 	}
 
 	return cards, nil
+}
+
+// Compare collector numbers by their numeric value, so that eg 689 sorts
+// before 1005, keeping any unnumbered card at the front
+func collectorNumberValue(number string) int {
+	i := 0
+	for i < len(number) && number[i] >= '0' && number[i] <= '9' {
+		i++
+	}
+	value, err := strconv.Atoi(number[:i])
+	if err != nil {
+		return 0
+	}
+	return value
 }
 
 func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet, error) {
@@ -369,8 +428,12 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 			log.Println(err.Error())
 			continue
 		}
+		if len(results) == 0 {
+			log.Println("empty result set from Scryfall, ignoring")
+			continue
+		}
 
-		log.Printf("Found these possible card numbers: %+q", results)
+		log.Printf("Found these possible card numbers: %+v", results)
 		if len(results) != len(cards) {
 			log.Println("... but the contents differ, we trust Scryfall...")
 			for i := range results {
@@ -401,6 +464,10 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 	}
 
 	sort.Slice(cards, func(i, j int) bool {
+		a, b := collectorNumberValue(cards[i].Number), collectorNumberValue(cards[j].Number)
+		if a != b {
+			return a < b
+		}
 		return cards[i].Number < cards[j].Number
 	})
 
@@ -553,7 +620,7 @@ func dumpCards(cardSet *CardSet, link, releaseDate, filename string) error {
 }
 
 func run() int {
-	pageOpt := flag.Int("page", 0, "Which page to start from")
+	pageOpt := flag.Int("page", -1, "Which page to start from (0 for the very beginning)")
 	doOCROpt := flag.Bool("ocr", false, "Enable OCR to derive collector numbers")
 	flag.Parse()
 
@@ -564,22 +631,26 @@ func run() int {
 	}
 	log.Println("Parsed Scryfall set page,", len(headers), "products found")
 
-	for i, arg := range flag.Args() {
-		cardSet, err := scrapeProduct(headers, arg, *doOCROpt)
-		if err != nil {
-			log.Println("page", i, "-", err)
-			return 1
-		}
+	if args := flag.Args(); len(args) > 0 {
+		exitCode := 0
+		for i, arg := range args {
+			cardSet, err := scrapeProduct(headers, arg, *doOCROpt)
+			if err != nil {
+				log.Println("page", i, "-", err)
+				exitCode = 1
+				continue
+			}
 
-		err = dumpCards(cardSet, arg, "", "")
-		if err != nil {
-			log.Println(err)
-			return 1
+			err = dumpCards(cardSet, arg, "", "")
+			if err != nil {
+				log.Println(err)
+				exitCode = 1
+			}
 		}
-		return 0
+		return exitCode
 	}
 
-	if *pageOpt == 0 {
+	if *pageOpt < 0 {
 		log.Println("Missing starting -page argument")
 		return 1
 	}
