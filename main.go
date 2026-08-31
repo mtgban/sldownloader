@@ -55,14 +55,20 @@ func getNumberFromLink(link string) (string, error) {
 	defer client.Close()
 
 	// We only want to find numbers and special terminator characters
-	client.SetWhitelist("0123456789 ™ ©")
+	err := client.SetWhitelist("0123456789 ™ ©")
+	if err != nil {
+		return "", err
+	}
 
 	data, err := getImageBytes(link)
 	if err != nil {
 		return "", err
 	}
 
-	client.SetImageFromBytes(data)
+	err = client.SetImageFromBytes(data)
+	if err != nil {
+		return "", err
+	}
 
 	text, err := client.Text()
 	if err != nil {
@@ -368,7 +374,7 @@ func collectorNumberValue(number string) int {
 	return value
 }
 
-func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet, error) {
+func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, doOCR bool) (*CardSet, error) {
 	resp, err := retryablehttp.Get(link)
 	if err != nil {
 		return nil, err
@@ -423,7 +429,7 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 			continue
 		}
 
-		results, err := searchURI(context.TODO(), header.URI)
+		results, err := searchURI(ctx, header.URI)
 		if err != nil {
 			log.Println(err.Error())
 			continue
@@ -518,7 +524,7 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 				return true
 			}
 
-			res, err := search(context.TODO(), fmt.Sprintf("%s cn:%s", cards[i].Name, num))
+			res, err := search(ctx, fmt.Sprintf("%s cn:%s", cards[i].Name, num))
 			if err != nil || len(res) == 0 {
 				log.Println("validation failed:", err)
 				return true
@@ -561,7 +567,7 @@ func scrapeProduct(headers []scryfallHeader, link string, doOCR bool) (*CardSet,
 					}
 					num = fmt.Sprint(cn + j - pos)
 
-					res, err := search(context.TODO(), fmt.Sprintf("%s cn:%s", cards[j].Name, num))
+					res, err := search(ctx, fmt.Sprintf("%s cn:%s", cards[j].Name, num))
 					if err != nil || len(res) == 0 {
 						log.Println("validation failed:", err)
 						continue
@@ -624,7 +630,9 @@ func run() int {
 	doOCROpt := flag.Bool("ocr", false, "Enable OCR to derive collector numbers")
 	flag.Parse()
 
-	headers, err := loadScryfallHeaders(context.Background())
+	ctx := context.Background()
+
+	headers, err := loadScryfallHeaders(ctx)
 	if err != nil {
 		log.Println("Unable to query scryfall")
 		return 1
@@ -634,7 +642,7 @@ func run() int {
 	if args := flag.Args(); len(args) > 0 {
 		exitCode := 0
 		for i, arg := range args {
-			cardSet, err := scrapeProduct(headers, arg, *doOCROpt)
+			cardSet, err := scrapeProduct(ctx, headers, arg, *doOCROpt)
 			if err != nil {
 				log.Println("page", i, "-", err)
 				exitCode = 1
@@ -702,7 +710,7 @@ func run() int {
 			}
 
 			link := "https://secretlair.wizards.com/us/product/" + product.ProductID
-			cardSet, err := scrapeProduct(headers, link, *doOCROpt)
+			cardSet, err := scrapeProduct(ctx, headers, link, *doOCROpt)
 			if err != nil {
 				log.Println("page", i-1, "-", err)
 				continue
