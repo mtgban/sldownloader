@@ -136,10 +136,23 @@ var nameTagRegexps = func() []*regexp.Regexp {
 	return regexps
 }()
 
+// Turn any unicode white space into a plain one, in its own pass: the
+// replacers below are single-pass and never rescan their own output, so eg
+// "Secret Lair x " could never match a title where a non-breaking space had
+// just been replaced
+func normalizeSpaces(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsSpace(r) {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
 // Derive the card name, removing any special tag
 func cleanLine(cardLine string) (string, int, error) {
 	// Unicode characters
-	cardLine = strings.Replace(cardLine, " ", " ", -1)
+	cardLine = normalizeSpaces(cardLine)
 	cardLine = strings.Replace(cardLine, "’", "'", -1)
 	cardLine = strings.Replace(cardLine, "”", "\"", -1)
 	cardLine = strings.Replace(cardLine, "“", "\"", -1)
@@ -238,7 +251,6 @@ func cleanLine(cardLine string) (string, int, error) {
 
 var replacerStrings = []string{
 	// Unicode characters
-	" ", " ",
 	"’", "'",
 	"‘", "'",
 	"®", "",
@@ -273,6 +285,8 @@ var replacer = strings.NewReplacer(replacerStrings...)
 // The first output is a compatible, file-system safe string to be used as a filename
 // The second output is the upstream name of the deck with as few modifications as possible
 func cleanTitle(title string) (string, string) {
+	title = normalizeSpaces(title)
+
 	// Keep only the relevant portion of the name, ie we can strip "Extra Life"
 	// but not Avatar, when the name is separated by a pipe
 	if strings.Contains(title, "|") {

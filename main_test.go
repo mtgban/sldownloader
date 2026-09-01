@@ -26,6 +26,8 @@ func TestCleanLine(t *testing.T) {
 		{"1x Phyrexian Vorinclex, Voice of Hunger", "Vorinclex, Voice of Hunger", 1},
 		{"1x Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun", "Growing Rites of Itlimoc", 1},
 		{"1x Triumph of Hordes", "Triumph of the Hordes", 1},
+		// Non-breaking spaces are normalized away
+		{"1x\u00a0Sol Ring", "Sol Ring", 1},
 	}
 
 	for _, tt := range tests {
@@ -150,5 +152,26 @@ func TestExtractNumber(t *testing.T) {
 	}
 	if num := extractNumber([]string{"™", "456"}, 2); num != "" {
 		t.Errorf("expected termination on ™, got %q", num)
+	}
+}
+
+func TestCleanTitle(t *testing.T) {
+	tests := []struct {
+		title    string
+		filename string
+		name     string
+	}{
+		{"Secret Lair x Lofi Girl: Beats to Cast To", "Lofi Girl- Beats to Cast To", "Lofi Girl: Beats to Cast To"},
+		// Non-breaking spaces used to hide the prefix from the replacer
+		{"Secret\u00a0Lair x Lofi Girl: Beats to Cast To\u00a0Foil Edition", "Lofi Girl- Beats to Cast To Foil Edition", "Lofi Girl: Beats to Cast To Foil Edition"},
+		// Narrow no-break space, previously handled by the replacer itself
+		{"Secret\u202fLair x Cosmic Chill by Robin Eisenberg", "Cosmic Chill by Robin Eisenberg", "Cosmic Chill by Robin Eisenberg"},
+	}
+
+	for _, tt := range tests {
+		filename, name := cleanTitle(tt.title)
+		if filename != tt.filename || name != tt.name {
+			t.Errorf("cleanTitle(%q) = %q, %q - expected %q, %q", tt.title, filename, name, tt.filename, tt.name)
+		}
 	}
 }
