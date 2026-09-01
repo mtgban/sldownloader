@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
@@ -374,6 +375,64 @@ func collectorNumberValue(number string) int {
 	return value
 }
 
+// Compare card names ignoring case and punctuation, so that eg a spurious
+// comma in "Dosan, the Falling Leaf" still matches the Scryfall name
+func normalizeCardName(name string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return unicode.ToLower(r)
+		}
+		return -1
+	}, name)
+}
+
+// Retrieve the canonical Scryfall spelling of a name from the results, as
+// long as it only differs in case or punctuation from the scraped one
+func canonicalName(results []CardData, name string) string {
+	for _, result := range results {
+		if result.Name != name && normalizeCardName(result.Name) == normalizeCardName(name) {
+			log.Printf("Adopting Scryfall spelling '%s' over '%s'", result.Name, name)
+			return result.Name
+		}
+	}
+	return name
+}
+
+// Assign the collector numbers found on Scryfall to the scraped cards,
+// preferring exact name matches so that similar names cannot steal each
+// other's slot, then retrying while ignoring case and punctuation, in which
+// case the Scryfall spelling of the name is adopted too
+func matchCardNumbers(cards, results []CardData) {
+	for i := range cards {
+		for j := range results {
+			if results[j].Number != "" && cards[i].Name == results[j].Name {
+				cards[i].Number = results[j].Number
+
+				// Reset so we can skip on reuse
+				results[j].Number = ""
+				break
+			}
+		}
+	}
+
+	for i := range cards {
+		if cards[i].Number != "" {
+			continue
+		}
+		for j := range results {
+			if results[j].Number != "" && normalizeCardName(cards[i].Name) == normalizeCardName(results[j].Name) {
+				log.Printf("Adopting Scryfall spelling '%s' over '%s'", results[j].Name, cards[i].Name)
+				cards[i].Name = results[j].Name
+				cards[i].Number = results[j].Number
+
+				// Reset so we can skip on reuse
+				results[j].Number = ""
+				break
+			}
+		}
+	}
+}
+
 func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, doOCR bool) (*CardSet, error) {
 	resp, err := retryablehttp.Get(link)
 	if err != nil {
@@ -449,17 +508,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, d
 			}
 			cards = results
 		} else {
-			for i := range cards {
-				for j := range results {
-					if results[j].Number != "" && cards[i].Name == results[j].Name {
-						cards[i].Number = results[j].Number
-
-						// Reset so we can skip on reuse
-						results[j].Number = ""
-						break
-					}
-				}
-			}
+			matchCardNumbers(cards, results)
 		}
 		foundMatch = true
 		break
@@ -530,6 +579,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, d
 				return true
 			}
 
+			cards[i].Name = canonicalName(res, cards[i].Name)
 			cards[i].Number = num
 			return true
 		})
@@ -572,6 +622,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, d
 						log.Println("validation failed:", err)
 						continue
 					}
+					cards[j].Name = canonicalName(res, cards[j].Name)
 					cards[j].Number = num
 				}
 			}
