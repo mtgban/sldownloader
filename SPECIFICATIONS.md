@@ -201,13 +201,14 @@ in scrape/DOM order:
    results.
 3. **If the result count doesn't equal the scraped card count**
    (`len(results) != len(cards)`): the scraped `cards` list is **discarded
-   and replaced wholesale** by `results`. Every replacement card is given
-   `Count = 1`, and `Foil`/`Etched` are both copied from `cards[0]` (the
-   *first* originally-scraped card) onto **every** replacement card. This
-   is safe for single-finish products (every card in the product shares the
-   same Foil/Etched status) but is a **known incorrect behavior for a
-   product page whose cards have per-card mixed finishes** — see
-   [todo/016-mixed-finish-scryfall-replacement.md](todo/016-mixed-finish-scryfall-replacement.md).
+   and replaced wholesale** by `results`, via `inheritFinish`. Every
+   replacement card is given `Count = 1`. Its `Foil`/`Etched` are inherited
+   from the *scraped* card with the same name under `normalizeCardName`
+   (§8.5.1), if one exists — this preserves per-card finish for a
+   mixed-finish product page. Only when no scraped card matches a given
+   replacement card at all does it fall back to copying `Foil`/`Etched`
+   from `cards[0]` (the first originally-scraped card), as a best-effort
+   default for a card this pass otherwise has no finish information for.
 4. **Otherwise** (`len(results) == len(cards)`): `matchCardNumbers` (§8.5)
    aligns the two lists by name — exact match first, then a
    punctuation/case-insensitive fallback that also adopts Scryfall's
@@ -223,24 +224,21 @@ and OCR is unconditionally forced on for this product
 ### 5.4 Sort
 
 Immediately after the matching phase (**before** OCR and backfill run),
-`cards` is sorted with `sort.Slice` by:
+`cards` is sorted by `sortCardsByNumber`, using `sort.SliceStable` on:
 1. `collectorNumberValue(number)` ascending (parses the leading run of
    ASCII digits in the number string as an integer; a card with no number
    yet, or a non-numeric-leading number, sorts as `0` — i.e. first);
 2. tiebreak: lexical string comparison of the raw number field.
 
-**Caveat**: `sort.Slice` is explicitly documented by the Go standard
-library as **not stable**. In the common case where OCR is about to run
-(§5.3 found no match), every card's `Number` is still `""` at this point,
-so every pairwise comparison in the sort is "equal" under this ordering.
-An unstable sort is not guaranteed to preserve the original relative order
-of equal elements. The OCR loop immediately after (§5.5) assumes
+The sort is deliberately **stable**, not merely `sort.Slice`: in the common
+case where OCR is about to run (§5.3 found no match), every card's `Number`
+is still `""` at this point, so every pairwise comparison in the sort is
+"equal" under this ordering. The OCR loop immediately after (§5.5) assumes
 `cards[i]` lines up positionally with the `i`-th image in the product's
-gallery (in original page/DOM order) — if a future Go version, or a
-different set of inputs, causes this sort to reorder equal-valued elements,
-that positional assumption would silently break and OCR numbers could be
-attributed to the wrong card. See
-[todo/017-unstable-sort-before-ocr.md](todo/017-unstable-sort-before-ocr.md).
+gallery (in original page/DOM order); stability is what guarantees that a
+run of "equal" (all-unnumbered) cards keeps that original scrape order
+through the sort, rather than an unstable sort being free to reorder them
+and silently desync the OCR loop's image-to-card mapping.
 
 ### 5.5 OCR fallback
 
@@ -378,9 +376,15 @@ in the right order, on text the replacer hasn't already rewritten out from
 under itself. Normalizing to plain spaces up front sidesteps the ordering
 problem entirely.
 
-### 8.2 `cleanLine(cardLine string) (name string, count int, err error)`
+### 8.2 `cleanLine(cardLine string) (name string, count int, tags detectedTags, err error)`
 
-Applied to one scraped bullet/line of card-list text. Steps, in order:
+Applied to one scraped bullet/line of card-list text. `detectedTags` is a
+small struct (`Foil`, `Etched`, `Token bool`) recording which finish/type
+tags were actually consumed as real variant markers during the steps
+below — as opposed to a tag substring that turned out to be part of the
+card's own name and was therefore left alone. `processLine` (§8.6) uses
+this report directly, rather than re-deriving Foil/Etched/Token from the
+raw line independently. Steps, in order:
 
 1. `normalizeSpaces`.
 2. Replace curly quotes: `’`→`'`, `”`→`"`, `“`→`"`.
@@ -403,7 +407,9 @@ Applied to one scraped bullet/line of card-list text. Steps, in order:
    descriptors that precede the word "Foil" (e.g. `"Galaxy Foil Sol Ring"`
    → `"Sol Ring"`), while the exclusions protect the literal card named
    "Foil" and the card "Lavinia, Foil to Conspiracy" (whose name contains
-   "Foil" mid-string, not as a prefix marker) from being truncated.
+   "Foil" mid-string, not as a prefix marker) from being truncated. When
+   this branch fires, `tags.Foil` is set — this is a genuine foil-variant
+   marker being consumed, not just name text.
 9. **Phyrexian-tag removal**: strip the literal substring `"Phyrexian"`
    unless the remainder also contains one of `"Tower"`, `"Crusader"`,
    `"Metamorph"`, `"Reclamation"`, `"Arena"`, or `"Unlife"` — these six
@@ -414,7 +420,18 @@ Applied to one scraped bullet/line of card-list text. Steps, in order:
     just before this step by checking whether the remainder contains one
     of a fixed list of real card names built from "Etched" or "Foil" — see
     §8.3), remove every word-boundary match (original or lowercased form)
-    via the precompiled `nameTagRegexps`.
+    via the precompiled `nameTagRegexps`. Whenever a tag's regex actually
+    matches and strips something (compared before/after), the
+    corresponding `detectedTags` field is set: `"Foil"` → `tags.Foil`,
+    `"Etched"` → `tags.Etched`, `"Foil-etched"` → both, `"Token"`/`"Tokens"`
+    → `tags.Token`. A tag skipped by `keepEtched`/`keepFoil` for this line
+    never reaches the strip, so it never sets its flag — this is what
+    keeps e.g. "Lavinia, Foil to Conspiracy" (no real foil-variant marker
+    in that line) from being reported as `tags.Foil`, while "Etched
+    Champion" appearing after an actual `"Foil "` prefix (step 8) still
+    correctly reports `tags.Foil` (from step 8) without also reporting
+    `tags.Etched` (protected here, since "Etched Champion" is the card's
+    own name).
 11. **Flavor-name removal**: if the remainder contains `" as "`, keep only
     the text before it (strips "X as Y" flavor-name framing).
 12. **"Bob Ross Drop" special case**: if the remainder contains
@@ -430,7 +447,7 @@ Applied to one scraped bullet/line of card-list text. Steps, in order:
     `Xenegos`→`Xenagos`, `Death Render`→`Deathrender`,
     `All is Dust`→`All Is Dust`, `Mistep`→`Misstep`,
     `Triumph of Hordes`→`Triumph of the Hordes`.
-17. `TrimSpace` and return `(name, count, nil)`.
+17. `TrimSpace` and return `(name, count, tags, nil)`.
 
 ### 8.3 `nameTags` and word-boundary matching
 
@@ -563,16 +580,14 @@ On a `cleanLine` error, the input `cards` slice is returned unchanged
 alongside the error (safe to call in a loop over many lines, one bad line
 does not lose prior progress).
 
-- `card.Foil`, `card.Etched`, `card.Token` are each set by a **substring
-  check against the lowercased raw (uncleaned) line** — not the cleaned
-  name. This means a card whose real name happens to contain "foil",
-  "etched", or "token" as a substring (case-insensitively, anywhere in the
-  raw line) is misclassified as having that finish/type, independent of
-  whether that word was actually a variant-descriptor tag. This is a real,
-  documented limitation, not merely theoretical for "Foil" and "Etched"
-  given the `keepFoil`/`keepEtched` cases already known to exist in
-  `cleanLine` — see
-  [todo/018-substring-finish-detection.md](todo/018-substring-finish-detection.md).
+- `card.Foil`, `card.Etched`, `card.Token` are set directly from the
+  `detectedTags` `cleanLine` returns (§8.2) — not from an independent
+  check of the raw line. This is what keeps a card whose real name happens
+  to contain "Foil" or "Etched" (e.g. "Lavinia, Foil to Conspiracy", the
+  seven "Etched ___" cards) from being misclassified as having that
+  finish, since `cleanLine`'s own `keepFoil`/`keepEtched` guards (already
+  needed for the name-cleaning itself) are the single source of truth for
+  whether an occurrence of one of these words was a real variant marker.
 - If the raw line contains `"Different"`, the count is expanded: `num`
   identical entries are appended, each with `Count = 1` (used for lines
   like "3x Different Full-Art Lands", representing N distinct/random
@@ -740,15 +755,6 @@ in its own `todo/` file:
   [todo/004](todo/004-golden-file-regression-tests-for-scraping.md)
 - CI runs no test step (see AGENTS.md §3) —
   [todo/005](todo/005-ci-test-job.md)
-- Mixed-finish products lose per-card Foil/Etched accuracy when Scryfall's
-  result count differs from the scraped count (§5.3 step 3) —
-  [todo/016](todo/016-mixed-finish-scryfall-replacement.md)
-- `sort.Slice` before OCR is not guaranteed stable, and the OCR loop
-  depends on positional stability (§5.4) —
-  [todo/017](todo/017-unstable-sort-before-ocr.md)
-- Foil/Etched/Token detection is a substring check against the whole raw
-  line, not the parsed name (§8.6) —
-  [todo/018](todo/018-substring-finish-detection.md)
 
 See [todo/README.md](todo/README.md) for the full backlog, including items
 that are process/tooling improvements rather than direct spec-level
