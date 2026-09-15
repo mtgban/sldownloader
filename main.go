@@ -100,6 +100,15 @@ type CardData struct {
 	Count  int
 }
 
+// Which finish/type tags cleanLine actually stripped as real variant
+// markers, as opposed to a tag substring that turned out to be part of the
+// card's own name (see the keepEtched/keepFoil guards in cleanLine)
+type detectedTags struct {
+	Foil   bool
+	Etched bool
+	Token  bool
+}
+
 // Random prefixes to remove from card names
 var nameTags = []string{
 	"Full-Text", "Full-Art", "Full-art", "Alt-Art",
@@ -149,8 +158,11 @@ func normalizeSpaces(s string) string {
 	}, s)
 }
 
-// Derive the card name, removing any special tag
-func cleanLine(cardLine string) (string, int, error) {
+// Derive the card name, removing any special tag, and report which
+// finish/type tags were actually found along the way
+func cleanLine(cardLine string) (string, int, detectedTags, error) {
+	var tags detectedTags
+
 	// Unicode characters
 	cardLine = normalizeSpaces(cardLine)
 	cardLine = strings.Replace(cardLine, "’", "'", -1)
@@ -161,12 +173,12 @@ func cleanLine(cardLine string) (string, int, error) {
 	// Only split on the first separator, card names may contain "x " too
 	fields := strings.SplitN(cardLine, "x ", 2)
 	if len(fields) != 2 {
-		return "", 0, errors.New("unexpected line format")
+		return "", 0, tags, errors.New("unexpected line format")
 	}
 
 	num, err := strconv.Atoi(fields[0])
 	if err != nil {
-		return "", 0, errors.New("invalid number in line")
+		return "", 0, tags, errors.New("invalid number in line")
 	}
 	cardLine = strings.TrimSpace(fields[1])
 
@@ -182,6 +194,7 @@ func cleanLine(cardLine string) (string, int, error) {
 		!strings.HasSuffix(cardLine, "Foil Edition") && !strings.HasSuffix(cardLine, "Foil Etched") {
 		fields := strings.Split(cardLine, "Foil")
 		cardLine = fields[1]
+		tags.Foil = true
 	}
 
 	// Remove this tag except for the cards with Phyrexian in them
@@ -212,7 +225,22 @@ func cleanLine(cardLine string) (string, int, error) {
 		if (keepEtched && tag == "Etched") || (keepFoil && tag == "Foil") {
 			continue
 		}
+		before := cardLine
 		cardLine = nameTagRegexps[i].ReplaceAllString(cardLine, "")
+		if cardLine == before {
+			continue
+		}
+		switch tag {
+		case "Foil":
+			tags.Foil = true
+		case "Etched":
+			tags.Etched = true
+		case "Foil-etched":
+			tags.Foil = true
+			tags.Etched = true
+		case "Token", "Tokens":
+			tags.Token = true
+		}
 	}
 
 	// Remove flavor names
@@ -246,7 +274,7 @@ func cleanLine(cardLine string) (string, int, error) {
 	cardLine = strings.Replace(cardLine, "Mistep", "Misstep", -1)
 	cardLine = strings.Replace(cardLine, "Triumph of Hordes", "Triumph of the Hordes", -1)
 
-	return strings.TrimSpace(cardLine), num, nil
+	return strings.TrimSpace(cardLine), num, tags, nil
 }
 
 var replacerStrings = []string{
@@ -337,14 +365,14 @@ func processLine(cards []CardData, line string) ([]CardData, error) {
 		return cards, nil
 	}
 
-	cardLine, num, err := cleanLine(line)
+	cardLine, num, tags, err := cleanLine(line)
 	if err != nil {
 		return cards, err
 	}
 
-	card.Foil = strings.Contains(strings.ToLower(line), "foil")
-	card.Etched = strings.Contains(strings.ToLower(line), "etched")
-	card.Token = strings.Contains(strings.ToLower(line), "token")
+	card.Foil = tags.Foil
+	card.Etched = tags.Etched
+	card.Token = tags.Token
 	card.Name = cardLine
 	card.Count = num
 
@@ -373,6 +401,21 @@ func processLine(cards []CardData, line string) ([]CardData, error) {
 	}
 
 	return cards, nil
+}
+
+// Sort cards by collector number, stably: every card is still unnumbered at
+// this point when no edition match was found, so every comparison is equal,
+// and the OCR pass right after this call assumes cards[i] still lines up
+// with the i-th gallery image - an unstable sort is free to reorder equal
+// elements and would silently break that assumption
+func sortCardsByNumber(cards []CardData) {
+	sort.SliceStable(cards, func(i, j int) bool {
+		a, b := collectorNumberValue(cards[i].Number), collectorNumberValue(cards[j].Number)
+		if a != b {
+			return a < b
+		}
+		return cards[i].Number < cards[j].Number
+	})
 }
 
 // Compare collector numbers by their numeric value, so that eg 689 sorts
@@ -410,6 +453,29 @@ func canonicalName(results []CardData, name string) string {
 		}
 	}
 	return name
+}
+
+// When Scryfall's edition search returns a different card count than what
+// was scraped, the scraped list is replaced wholesale by the search
+// results (see scrapeProduct) - but each replacement card still needs a
+// Foil/Etched finish. Try to inherit it from the scraped card with the
+// same name, so a mixed-finish product doesn't get every card's finish
+// flattened to whatever the first scraped card happened to be; only fall
+// back to that default when no scraped card matches at all.
+func inheritFinish(scraped []CardData, results []CardData) []CardData {
+	for i := range results {
+		foil, etched := scraped[0].Foil, scraped[0].Etched
+		for _, orig := range scraped {
+			if normalizeCardName(orig.Name) == normalizeCardName(results[i].Name) {
+				foil, etched = orig.Foil, orig.Etched
+				break
+			}
+		}
+		results[i].Foil = foil
+		results[i].Etched = etched
+		results[i].Count = 1
+	}
+	return results
 }
 
 // Assign the collector numbers found on Scryfall to the scraped cards,
@@ -515,12 +581,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, d
 		log.Printf("Found these possible card numbers: %+v", results)
 		if len(results) != len(cards) {
 			log.Println("... but the contents differ, we trust Scryfall...")
-			for i := range results {
-				results[i].Foil = cards[0].Foil
-				results[i].Etched = cards[0].Etched
-				results[i].Count = 1
-			}
-			cards = results
+			cards = inheritFinish(cards, results)
 		} else {
 			matchCardNumbers(cards, results)
 		}
@@ -532,13 +593,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, d
 		doOCR = true
 	}
 
-	sort.Slice(cards, func(i, j int) bool {
-		a, b := collectorNumberValue(cards[i].Number), collectorNumberValue(cards[j].Number)
-		if a != b {
-			return a < b
-		}
-		return cards[i].Number < cards[j].Number
-	})
+	sortCardsByNumber(cards)
 
 	cardSet.Cards = cards
 

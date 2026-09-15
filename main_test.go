@@ -9,35 +9,40 @@ func TestCleanLine(t *testing.T) {
 		line  string
 		name  string
 		count int
+		tags  detectedTags
 	}{
 		// Card names containing "x " survive the count separator split
-		{"1x Nyx Lotus", "Nyx Lotus", 1},
+		{"1x Nyx Lotus", "Nyx Lotus", 1, detectedTags{}},
 		// Tags are only removed on word boundaries
-		{"2x Borderless Expedition Map", "Expedition Map", 2},
-		// Card names containing a tag word are preserved
-		{"1x Foil Etched Champion", "Etched Champion", 1},
-		{"1x Lavinia, Foil to Conspiracy", "Lavinia, Foil to Conspiracy", 1},
-		// Regular tag stripping still works
-		{"3x Showcase Brainstorm (Retro Frame)", "Brainstorm", 3},
-		{"1x Galaxy Foil Sol Ring", "Sol Ring", 1},
-		{"1x Foil Etched Sol Ring", "Sol Ring", 1},
-		{"4x Borderless Werewolf token", "Werewolf", 4},
-		{"1x Phyrexian Tower", "Phyrexian Tower", 1},
-		{"1x Phyrexian Vorinclex, Voice of Hunger", "Vorinclex, Voice of Hunger", 1},
-		{"1x Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun", "Growing Rites of Itlimoc", 1},
-		{"1x Triumph of Hordes", "Triumph of the Hordes", 1},
+		{"2x Borderless Expedition Map", "Expedition Map", 2, detectedTags{}},
+		// Card names containing a tag word are preserved, and are not
+		// reported as a detected finish tag either
+		{"1x Foil Etched Champion", "Etched Champion", 1, detectedTags{Foil: true}},
+		{"1x Lavinia, Foil to Conspiracy", "Lavinia, Foil to Conspiracy", 1, detectedTags{}},
+		// Regular tag stripping still works, and is reported
+		{"3x Showcase Brainstorm (Retro Frame)", "Brainstorm", 3, detectedTags{}},
+		{"1x Galaxy Foil Sol Ring", "Sol Ring", 1, detectedTags{Foil: true}},
+		{"1x Foil Etched Sol Ring", "Sol Ring", 1, detectedTags{Foil: true, Etched: true}},
+		{"4x Borderless Werewolf token", "Werewolf", 4, detectedTags{Token: true}},
+		{"1x Phyrexian Tower", "Phyrexian Tower", 1, detectedTags{}},
+		{"1x Phyrexian Vorinclex, Voice of Hunger", "Vorinclex, Voice of Hunger", 1, detectedTags{}},
+		{"1x Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun", "Growing Rites of Itlimoc", 1, detectedTags{}},
+		{"1x Triumph of Hordes", "Triumph of the Hordes", 1, detectedTags{}},
 		// Non-breaking spaces are normalized away
-		{"1x\u00a0Sol Ring", "Sol Ring", 1},
+		{"1x\u00a0Sol Ring", "Sol Ring", 1, detectedTags{}},
 	}
 
 	for _, tt := range tests {
-		name, count, err := cleanLine(tt.line)
+		name, count, tags, err := cleanLine(tt.line)
 		if err != nil {
 			t.Errorf("cleanLine(%q) returned error: %v", tt.line, err)
 			continue
 		}
 		if name != tt.name || count != tt.count {
 			t.Errorf("cleanLine(%q) = %q, %d - expected %q, %d", tt.line, name, count, tt.name, tt.count)
+		}
+		if tags != tt.tags {
+			t.Errorf("cleanLine(%q) tags = %+v - expected %+v", tt.line, tags, tt.tags)
 		}
 	}
 }
@@ -47,7 +52,7 @@ func TestCleanLineErrors(t *testing.T) {
 		"no count here",
 		"Includes the following",
 	} {
-		_, _, err := cleanLine(line)
+		_, _, _, err := cleanLine(line)
 		if err == nil {
 			t.Errorf("cleanLine(%q) expected an error", line)
 		}
@@ -76,6 +81,94 @@ func TestProcessLineMerge(t *testing.T) {
 	}
 	if !cards[1].Foil || cards[1].Count != 1 {
 		t.Errorf("expected 1x foil Sol Ring, got %+v", cards[1])
+	}
+}
+
+func TestProcessLineFinishDetection(t *testing.T) {
+	tests := []struct {
+		line   string
+		foil   bool
+		etched bool
+	}{
+		// A card whose own name contains "Foil" must not be flagged as a
+		// foil-finish printing just because the raw line contains that
+		// substring
+		{"1x Lavinia, Foil to Conspiracy", false, false},
+		// An actual foil-finish prefix is still detected
+		{"1x Foil Sol Ring", true, false},
+		// A card whose own name contains "Etched" must not be flagged as
+		// an etched-finish printing
+		{"1x Foil Etched Champion", true, false},
+	}
+
+	for _, tt := range tests {
+		cards, err := processLine(nil, tt.line)
+		if err != nil {
+			t.Fatalf("processLine(%q) returned error: %v", tt.line, err)
+		}
+		if len(cards) != 1 {
+			t.Fatalf("processLine(%q) produced %d cards, expected 1", tt.line, len(cards))
+		}
+		if cards[0].Foil != tt.foil || cards[0].Etched != tt.etched {
+			t.Errorf("processLine(%q) = %+v - expected Foil=%v Etched=%v", tt.line, cards[0], tt.foil, tt.etched)
+		}
+	}
+}
+
+func TestSortCardsByNumber(t *testing.T) {
+	cards := []CardData{
+		{Name: "Alpha"},
+		{Name: "Beta"},
+		{Name: "Gamma", Number: "689"},
+		{Name: "Delta", Number: "1005"},
+		{Name: "Epsilon"},
+	}
+	sortCardsByNumber(cards)
+
+	// Numbered cards sort numerically (689 before 1005, not lexically),
+	// and unnumbered cards - all "equal" under this ordering - keep their
+	// original relative order: the OCR pass right after this call in
+	// scrapeProduct assumes cards[i] still lines up with the i-th gallery
+	// image, which only holds for a stable sort
+	want := []string{"Alpha", "Beta", "Epsilon", "Gamma", "Delta"}
+	for i, name := range want {
+		if cards[i].Name != name {
+			t.Errorf("cards[%d].Name = %q, want %q", i, cards[i].Name, name)
+		}
+	}
+}
+
+func TestInheritFinish(t *testing.T) {
+	scraped := []CardData{
+		{Name: "Sol Ring", Foil: false},
+		{Name: "Mox Diamond", Foil: true},
+	}
+	results := []CardData{
+		{Name: "Sol Ring", Number: "100"},
+		{Name: "Mox Diamond", Number: "101"},
+		{Name: "Black Lotus", Number: "102"},
+	}
+
+	got := inheritFinish(scraped, results)
+
+	if len(got) != 3 {
+		t.Fatalf("expected 3 cards, got %d", len(got))
+	}
+	if got[0].Foil {
+		t.Errorf("expected Sol Ring to keep its own (nonfoil) finish, got %+v", got[0])
+	}
+	if !got[1].Foil {
+		t.Errorf("expected Mox Diamond to keep its own (foil) finish, got %+v", got[1])
+	}
+	// No scraped card named "Black Lotus" - falls back to the first
+	// scraped card's finish (documented best-effort default)
+	if got[2].Foil != scraped[0].Foil {
+		t.Errorf("expected the fallback finish for an unmatched card, got %+v", got[2])
+	}
+	for _, card := range got {
+		if card.Count != 1 {
+			t.Errorf("expected every replacement card to have Count 1, got %+v", card)
+		}
 	}
 }
 

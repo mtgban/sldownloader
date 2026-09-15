@@ -10,14 +10,6 @@ Every item was found by reading the current implementation closely — cross
 references from [SPECIFICATIONS.md](../SPECIFICATIONS.md) point back to
 specific items where the behavior they describe is the direct cause.
 
-## Correctness (real, if narrow, behavioral bugs)
-
-| # | Title | Why it matters |
-|---|---|---|
-| [016](016-mixed-finish-scryfall-replacement.md) | Mixed-finish products lose per-card Foil/Etched on Scryfall replacement | Wrong finish flags in output for a specific, real product shape |
-| [017](017-unstable-sort-before-ocr.md) | Unstable sort before OCR risks desyncing image-to-card mapping | Could silently misattribute OCR'd numbers between cards |
-| [018](018-substring-finish-detection.md) | Foil/Etched/Token detection is a raw-line substring check | Misclassifies a card whose own name contains one of those words |
-
 ## Testing & CI
 
 | # | Title | Why it matters |
