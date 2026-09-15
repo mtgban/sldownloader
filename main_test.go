@@ -125,12 +125,17 @@ func TestMatchCardNumbers(t *testing.T) {
 	cards := []CardData{
 		{Name: "Dosan, the Falling Leaf"},
 		{Name: "Azusa, Lost but Seeking"},
+		// Two simultaneous mismatches: with more than one card and more
+		// than one result left after the first two rounds, pairing them
+		// up would be a guess, not an elimination - neither should match
 		{Name: "Fog"},
+		{Name: "Frost Breath"},
 	}
 	results := []CardData{
 		{Name: "Azusa, Lost but Seeking", Number: "2403"},
 		{Name: "Dosan the Falling Leaf", Number: "2404"},
 		{Name: "Fog Bank", Number: "2405"},
+		{Name: "Winter's Grasp", Number: "2406"},
 	}
 
 	matchCardNumbers(cards, results)
@@ -142,7 +147,49 @@ func TestMatchCardNumbers(t *testing.T) {
 		t.Errorf("expected an exact match, got %+v", cards[1])
 	}
 	if cards[2].Name != "Fog" || cards[2].Number != "" {
-		t.Errorf("expected no match for a different name, got %+v", cards[2])
+		t.Errorf("expected no match while more than one card is ambiguous, got %+v", cards[2])
+	}
+	if cards[3].Name != "Frost Breath" || cards[3].Number != "" {
+		t.Errorf("expected no match while more than one card is ambiguous, got %+v", cards[3])
+	}
+}
+
+func TestMatchCardNumbersByElimination(t *testing.T) {
+	// Reproduces the real production case: the Wizards product page
+	// misspelled "Kutzil, Malamet Exemplar" as "Kutzil, Malament
+	// Exemplar" - a genuine letter-level typo, not just punctuation or
+	// case, so normalizeCardName cannot bridge it. Every other card in
+	// the product matches cleanly, leaving exactly one card and exactly
+	// one result unmatched on each side.
+	cards := []CardData{
+		{Name: "Sisay, Weatherlight Captain"},
+		{Name: "Silence"},
+		{Name: "Emiel the Blessed"},
+		{Name: "Hajar, Loyal Bodyguard"},
+		{Name: "Kutzil, Malament Exemplar"},
+		{Name: "Sol Ring"},
+	}
+	results := []CardData{
+		{Name: "Sisay, Weatherlight Captain", Number: "2778"},
+		{Name: "Silence", Number: "2779"},
+		{Name: "Emiel the Blessed", Number: "2780"},
+		{Name: "Hajar, Loyal Bodyguard", Number: "2781"},
+		{Name: "Kutzil, Malamet Exemplar", Number: "2782"},
+		{Name: "Sol Ring", Number: "2783"},
+	}
+
+	matchCardNumbers(cards, results)
+
+	if cards[4].Name != "Kutzil, Malamet Exemplar" || cards[4].Number != "2782" {
+		t.Errorf("expected the sole leftover pair to be matched by elimination, got %+v", cards[4])
+	}
+	for i, card := range cards {
+		if i == 4 {
+			continue
+		}
+		if card.Number == "" {
+			t.Errorf("expected every other card to already be matched, got %+v", card)
+		}
 	}
 }
 

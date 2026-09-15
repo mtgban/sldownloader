@@ -415,7 +415,18 @@ func canonicalName(results []CardData, name string) string {
 // Assign the collector numbers found on Scryfall to the scraped cards,
 // preferring exact name matches so that similar names cannot steal each
 // other's slot, then retrying while ignoring case and punctuation, in which
-// case the Scryfall spelling of the name is adopted too
+// case the Scryfall spelling of the name is adopted too. Finally, if the
+// two rounds above leave exactly one card and exactly one result
+// unmatched, pair them by elimination and adopt Scryfall's name outright,
+// even though it may differ from the scraped one by more than punctuation
+// - this is what recovers from a genuine source-page typo (eg "Kutzil,
+// Malament Exemplar" scraped for the real "Kutzil, Malamet Exemplar"),
+// which normalizeCardName alone cannot bridge. It is safe specifically
+// because cards and results always start out the same length (the only
+// caller only reaches this function when that holds): every match removes
+// one entry from each side, so if exactly one remains on one side, exactly
+// one remains on the other too, and there is no other candidate either
+// one of them could be.
 func matchCardNumbers(cards, results []CardData) {
 	for i := range cards {
 		for j := range results {
@@ -444,6 +455,25 @@ func matchCardNumbers(cards, results []CardData) {
 				break
 			}
 		}
+	}
+
+	var unmatchedCards []int
+	for i := range cards {
+		if cards[i].Number == "" {
+			unmatchedCards = append(unmatchedCards, i)
+		}
+	}
+	var unmatchedResults []int
+	for j := range results {
+		if results[j].Number != "" {
+			unmatchedResults = append(unmatchedResults, j)
+		}
+	}
+	if len(unmatchedCards) == 1 && len(unmatchedResults) == 1 {
+		i, j := unmatchedCards[0], unmatchedResults[0]
+		log.Printf("By elimination, adopting Scryfall spelling '%s' over '%s'", results[j].Name, cards[i].Name)
+		cards[i].Name = results[j].Name
+		cards[i].Number = results[j].Number
 	}
 }
 
