@@ -219,7 +219,8 @@ in scrape/DOM order:
 4. **Otherwise** (`len(results) == len(cards)`): `matchCardNumbers` (§8.5)
    aligns the two lists by name — exact match first, then a
    punctuation/case-insensitive fallback that also adopts Scryfall's
-   spelling of the name (see §8.5 for the two-round algorithm).
+   spelling of the name, then, if exactly one card and one result are left
+   over, pairs those two by elimination (see §8.5 for the three rounds).
 5. Once a header produces usable results (step 2 succeeded), the loop
    **stops** (`foundMatch = true; break`) — no further headers are tried
    even if a later one might have matched more cards.
@@ -546,7 +547,7 @@ Regular → (removed)               "DD " → (removed)
 
 ### 8.5 `matchCardNumbers(cards, results []CardData)` and canonical names
 
-Two-round, in-place alignment used when the scraped card count exactly
+Three-round, in-place alignment used when the scraped card count exactly
 matches the Scryfall edition's card count (§5.3 step 4):
 
 - **Round 1 — exact match**: for each scraped card (in order), find the
@@ -561,6 +562,20 @@ matches the Scryfall edition's card count (§5.3 step 4):
   typos or spurious punctuation in the scraped title (e.g. the product
   page listing `"Dosan, the Falling Leaf"` for the card actually named
   "Dosan the Falling Leaf") without needing a hardcoded fix per misspelling.
+- **Round 3 — elimination**: if exactly one scraped card is still without
+  a number **and** exactly one result still has one, pair them: assign the
+  number and overwrite the scraped card's `Name` with the result's, even
+  when the two differ by more than case or punctuation, logging
+  `"By elimination, adopting Scryfall spelling ..."`. This recovers from a
+  letter-level typo on the product page that Round 2 cannot bridge (e.g.
+  `"Kutzil, Malament Exemplar"` listed for the card actually named
+  "Kutzil, Malamet Exemplar"). It is safe because both lists start out the
+  same length (the only caller guarantees it) and every match removes one
+  entry from each side, so a single leftover on one side has no candidate
+  but the single leftover on the other. With two or more left over on each
+  side nothing is paired, since any pairing would be a guess, and those
+  cards fall through to OCR (only with `-ocr`, since an edition matched)
+  and backfill (§5.5–§5.6).
 
 Running exact matches first (rather than only the normalized pass) exists
 specifically so that two similarly-named cards in the same product can't

@@ -186,8 +186,12 @@ already fixed and **must stay fixed**:
   stripping case and punctuation (`normalizeCardName`). Prefer extending
   this general mechanism over adding another one-off `strings.Replace` for
   a new misspelling, unless the mismatch is not punctuation/case (e.g. a
-  genuine word substitution like "Xenegos" → "Xenagos", which the general
-  mechanism cannot catch and does still need a hardcoded fix).
+  genuine word substitution like "Xenegos" → "Xenagos"). `matchCardNumbers`
+  also pairs a letter-level typo by elimination when it is the only card
+  left unmatched in an edition of the same size (SPECIFICATIONS.md §8.5),
+  so check whether that already covers the product before adding a
+  hardcoded fix; it does not cover the OCR or backfill paths, or a product
+  with two such typos.
 
 When you add a new special case, add a matching table-driven test entry in
 `main_test.go` in the same commit — see the existing structure of
@@ -327,6 +331,10 @@ already-done work), and update `todo/README.md`'s index accordingly.
   §2 on macOS), plus, for anything touching the scraping/matching logic, a
   live run per §6. The Test workflow re-runs the first three on the PR;
   it cannot do the live run for you.
+- **Update [SPECIFICATIONS.md](SPECIFICATIONS.md) in the same PR** as
+  any change to behavior it describes: grep it for every function you
+  touched. People and agents read it instead of the code, so a stale
+  section misleads them exactly where they look first.
 - **Never widen the OCR digit-length filter** (§4.2) — this has been asked
   for before and explicitly rejected; treat it as settled unless the
   underlying domain assumption (SLD numbers are 3+ digits) is challenged
