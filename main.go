@@ -746,45 +746,57 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, d
 	return &cardSet, nil
 }
 
-func dumpCards(cardSet *CardSet, link, releaseDate, filename string) error {
-	var file io.Writer = os.Stdout
-	if filename != "" {
-		filename = filename + ".txt"
-		theFile, err := os.Create(filename)
-		if err != nil {
-			return err
-		}
-		defer theFile.Close()
-		file = theFile
-	}
-
-	fmt.Fprintf(file, "// NAME: %s\n", cardSet.Title)
-	fmt.Fprintf(file, "// SOURCE: %s\n", link)
+// Render a decklist in the upstream text format
+func formatCards(cardSet *CardSet, link, releaseDate string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "// NAME: %s\n", cardSet.Title)
+	fmt.Fprintf(&b, "// SOURCE: %s\n", link)
 	if releaseDate != "" {
-		fmt.Fprintf(file, "// DATE: %s\n", releaseDate)
+		fmt.Fprintf(&b, "// DATE: %s\n", releaseDate)
 	}
 	for _, card := range cardSet.Cards {
+		number := ""
 		if card.Number != "" {
-			card.Number = ":" + card.Number
+			number = ":" + card.Number
 		}
-		fmt.Fprintf(file, "%d [SLD%s] %s", card.Count, card.Number, card.Name)
+		fmt.Fprintf(&b, "%d [SLD%s] %s", card.Count, number, card.Name)
 		if card.Foil {
-			fmt.Fprintf(file, " [foil]")
+			b.WriteString(" [foil]")
 		}
 		if card.Etched {
-			fmt.Fprintf(file, " [etched]")
+			b.WriteString(" [etched]")
 		}
 		if card.Token {
-			fmt.Fprintf(file, " [token]")
+			b.WriteString(" [token]")
 		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}
 
-		fmt.Fprintf(file, "\n")
+func dumpCards(cardSet *CardSet, link, releaseDate, filename string) error {
+	text := formatCards(cardSet, link, releaseDate)
+	if filename == "" {
+		_, err := io.WriteString(os.Stdout, text)
+		return err
 	}
 
-	if filename != "" {
-		log.Printf("Created '%s' (%s)", filename, releaseDate)
+	filename += ".txt"
+	file, err := os.Create(filename)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(file, text)
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		// Never leave a truncated decklist behind for the sync to commit
+		os.Remove(filename)
+		return err
 	}
 
+	log.Printf("Created '%s' (%s)", filename, releaseDate)
 	return nil
 }
 

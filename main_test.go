@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -354,5 +355,54 @@ func TestRetryClientCapsRetryAfter(t *testing.T) {
 
 	if n := attempts.Load(); n != 2 {
 		t.Errorf("expected 2 attempts, got %d", n)
+	}
+}
+
+func TestFormatCards(t *testing.T) {
+	cardSet := &CardSet{
+		Title: "Lofi Girl: Beats to Cast To",
+		Cards: []CardData{
+			{Name: "Felidar Guardian", Number: "2821", Count: 1},
+			{Name: "Werewolf", Count: 4, Token: true},
+			{Name: "Sol Ring", Number: "2822", Count: 2, Foil: true, Etched: true},
+			{Name: "Witch Enchanter", Number: "2655a", Count: 1, Foil: true},
+		},
+	}
+	want := `// NAME: Lofi Girl: Beats to Cast To
+// SOURCE: https://secretlair.wizards.com/us/product/1254382
+// DATE: 2026-09-01
+1 [SLD:2821] Felidar Guardian
+4 [SLD] Werewolf [token]
+2 [SLD:2822] Sol Ring [foil] [etched]
+1 [SLD:2655a] Witch Enchanter [foil]
+`
+	got := formatCards(cardSet, "https://secretlair.wizards.com/us/product/1254382", "2026-09-01")
+	if got != want {
+		t.Errorf("formatCards() =\n%s\nwant\n%s", got, want)
+	}
+
+	// No DATE line at all without a release date
+	got = formatCards(&CardSet{Title: "X"}, "link", "")
+	if want := "// NAME: X\n// SOURCE: link\n"; got != want {
+		t.Errorf("formatCards() without a date = %q, want %q", got, want)
+	}
+}
+
+func TestDumpCardsFile(t *testing.T) {
+	t.Chdir(t.TempDir())
+	cardSet := &CardSet{
+		Title: "Lofi Girl: Beats to Cast To",
+		Cards: []CardData{{Name: "Felidar Guardian", Number: "2821", Count: 1}},
+	}
+
+	if err := dumpCards(cardSet, "link", "2026-09-01", "Lofi Girl- Beats to Cast To"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile("Lofi Girl- Beats to Cast To.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := formatCards(cardSet, "link", "2026-09-01"); string(data) != want {
+		t.Errorf("file contents = %q, want %q", data, want)
 	}
 }
