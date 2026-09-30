@@ -70,12 +70,17 @@ missing-header error, this is almost certainly why.
 go build ./...   # build the binary
 go vet ./...      # static checks — must be clean, CI runs it too
 go test ./...     # run main_test.go
+
+# lint with .golangci.yml, at the version CI pins in test.yml
+go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
 ```
 
+Run golangci-lint through `go run` at the pinned version rather than a
+locally installed binary: a build made with a Go release older than the
+one in `go.mod` fails to type-check this module.
+
 There is currently no `Makefile`/`justfile` wrapping the CGO flags (see
-[todo/014-makefile-for-cgo-flags.md](todo/014-makefile-for-cgo-flags.md)) and
-no lint step beyond `go vet` (see
-[todo/015-golangci-lint-ci.md](todo/015-golangci-lint-ci.md)).
+[todo/014-makefile-for-cgo-flags.md](todo/014-makefile-for-cgo-flags.md)).
 
 ### Running the tool locally
 
@@ -327,10 +332,10 @@ already-done work), and update `todo/README.md`'s index accordingly.
   commits landing on `master` is not evidence that direct pushes are fine;
   it may just mean PRs get merged promptly.
 - **Gate every change locally before opening a PR**: `go build ./...`,
-  `go vet ./...`, `go test ./...` all clean (remember the CGO flags from
-  §2 on macOS), plus, for anything touching the scraping/matching logic, a
-  live run per §6. The Test workflow re-runs the first three on the PR;
-  it cannot do the live run for you.
+  `go vet ./...`, `go test ./...` and golangci-lint (§2) all clean
+  (remember the CGO flags from §2 on macOS), plus, for anything touching
+  the scraping/matching logic, a live run per §6. The Test workflow
+  re-runs the first four on the PR; it cannot do the live run for you.
 - **Update [SPECIFICATIONS.md](SPECIFICATIONS.md) in the same PR** as
   any change to behavior it describes: grep it for every function you
   touched. People and agents read it instead of the code, so a stale

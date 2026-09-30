@@ -45,5 +45,4 @@ against a couple of neighboring drops.
   test` instead of silently in production.
 - The Test workflow ([test.yml](../.github/workflows/test.yml)) runs
   `go test` on every PR, so fixtures added here are enforced as soon as
-  they land. This also gives [015](015-golangci-lint-ci.md) something
-  meaningful to build on.
+  they land.
