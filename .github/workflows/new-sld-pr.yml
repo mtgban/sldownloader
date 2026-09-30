@@ -18,6 +18,9 @@ env:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # A daily run takes 1-2 minutes and a full catalog crawl should take
+    # under an hour; the 6-hour default only burns runner time when stalled
+    timeout-minutes: 90
     steps:
       - name: Checkout sldownloader repo
         uses: actions/checkout@v5
