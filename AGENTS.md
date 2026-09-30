@@ -205,8 +205,13 @@ you ever see per-call `scryfall.NewClient()` reappear in a diff, that is
 almost certainly reintroducing this exact bug.
 
 The Wizards product-page and Scalefast catalog fetches have **no** rate
-limiting or shared-client story beyond `retryablehttp`'s defaults — see
+limiting or shared-client story beyond `retryablehttp`'s default retry
+policy — see
 [todo/002-shared-http-client-with-timeout-and-status-checks.md](todo/002-shared-http-client-with-timeout-and-status-checks.md).
+Every `retryablehttp` client must come from `newRetryClient`, which caps
+the backoff at `RetryWaitMax`: Wizards answers some pages with a 503 and
+`Retry-After: 3600`, and the library's default backoff waits that out in
+full before each retry, turning one bad page into a four-hour stall.
 
 ### 4.5 CSS selectors are brittle and scattered
 

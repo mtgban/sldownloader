@@ -1,7 +1,14 @@
 package main
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/hashicorp/go-retryablehttp"
 )
 
 func TestCleanLine(t *testing.T) {
@@ -313,5 +320,39 @@ func TestCleanTitle(t *testing.T) {
 		if filename != tt.filename || name != tt.name {
 			t.Errorf("cleanTitle(%q) = %q, %q - expected %q, %q", tt.title, filename, name, tt.filename, tt.name)
 		}
+	}
+}
+
+func TestRetryClientCapsRetryAfter(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if attempts.Add(1) == 1 {
+			w.Header().Set("Retry-After", "3600")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := newRetryClient()
+	client.Logger = nil
+	client.RetryWaitMax = 10 * time.Millisecond
+
+	// The server asks for an hour, the retry must settle for RetryWaitMax
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("expected the retry to happen within RetryWaitMax, got %v", err)
+	}
+	resp.Body.Close()
+
+	if n := attempts.Load(); n != 2 {
+		t.Errorf("expected 2 attempts, got %d", n)
 	}
 }
