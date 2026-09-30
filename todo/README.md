@@ -22,7 +22,7 @@ specific items where the behavior they describe is the direct cause.
 | # | Title | Why it matters |
 |---|---|---|
 | [001](001-ci-exit-code-and-next-page-marker.md) | Catalog-crawl exit code and resume-page signal are unreliable | A failed daily run can look identical to a successful one to the CI workflow |
-| [002](002-shared-http-client-with-timeout-and-status-checks.md) | No shared HTTP client, timeout, or status-code checks for Wizards/Scalefast fetches | A hung server can stall the daily job indefinitely; a 404 is misreported as "no cards found" |
+| [002](002-shared-http-client-with-timeout-and-status-checks.md) | No per-request timeout or status-code checks on the Wizards, Scalefast and scryfall.com fetches | One unanswered request can cost the whole daily run; a 404 is misreported as "no cards found" |
 | [003](003-scryfall-search-pagination.md) | Scryfall search results are not paginated | Silent truncation risk if ever queried against a large result set |
 | [006](006-structured-logging.md) | Logging is unlevelled `log.Println`/`Printf` calls throughout | No way to quiet routine output or get machine-parseable diagnostics |
 | [007](007-context-cancellation-on-signal.md) | `context.Background()` is never cancelled | A `-page` crawl can't be interrupted cleanly mid-request |
@@ -43,3 +43,10 @@ specific items where the behavior they describe is the direct cause.
 | [012](012-centralize-css-selectors.md) | CSS selector strings are scattered and unlabeled | A site markup change fails silently and is hard to triage |
 | [013](013-version-flag.md) | No `-version` flag or build-time version stamping | Hard to tell which build produced a given decklist file or CI run |
 | [014](014-makefile-for-cgo-flags.md) | No wrapper for the macOS CGO flags | New contributors hit the same confusing build failure documented in AGENTS.md §2 |
+| [019](019-split-scrapeproduct.md) | `scrapeProduct` does everything in one 190-line function | None of its logic can be unit tested without the network; blocks [004](004-golden-file-regression-tests-for-scraping.md) |
+
+## Dependencies
+
+| # | Title | Why it matters |
+|---|---|---|
+| [020](020-dependency-updates.md) | Direct dependencies are behind, and nothing proposes updates | Updates arrive only as security fixes, on top of several unrelated releases |

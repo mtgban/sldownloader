@@ -767,8 +767,8 @@ in its own `todo/` file:
 
 - Catalog-crawl mode's process exit code never reflects failure (§7) —
   [todo/001](todo/001-ci-exit-code-and-next-page-marker.md)
-- No shared HTTP client, timeout, or status-code checking for the
-  Wizards/Scalefast fetches (§3) —
+- No per-request timeout or status-code checking on the Wizards,
+  Scalefast and scryfall.com fetches (§3) —
   [todo/002](todo/002-shared-http-client-with-timeout-and-status-checks.md)
 - Scryfall search results are not paginated (§9.3) —
   [todo/003](todo/003-scryfall-search-pagination.md)
