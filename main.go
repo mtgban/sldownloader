@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"regexp"
 	"sort"
@@ -22,8 +23,20 @@ import (
 	"github.com/otiai10/gosseract/v2"
 )
 
+// Wizards can answer 503 with a Retry-After of an hour, which the default
+// backoff waits out in full before every retry; never wait past RetryWaitMax
+func cappedBackoff(minWait, maxWait time.Duration, attempt int, resp *http.Response) time.Duration {
+	return min(retryablehttp.DefaultBackoff(minWait, maxWait, attempt, resp), maxWait)
+}
+
+func newRetryClient() *retryablehttp.Client {
+	client := retryablehttp.NewClient()
+	client.Backoff = cappedBackoff
+	return client
+}
+
 func getImageBytes(link string) ([]byte, error) {
-	retryClient := retryablehttp.NewClient()
+	retryClient := newRetryClient()
 	retryClient.Logger = nil
 	resp, err := retryClient.Get(link)
 	if err != nil {
@@ -544,7 +557,7 @@ func matchCardNumbers(cards, results []CardData) {
 }
 
 func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, doOCR bool) (*CardSet, error) {
-	resp, err := retryablehttp.Get(link)
+	resp, err := newRetryClient().Get(link)
 	if err != nil {
 		return nil, err
 	}
@@ -902,7 +915,7 @@ type ScalefastResponse struct {
 }
 
 func getProducts(offset int) (*ScalefastResponse, error) {
-	retryClient := retryablehttp.NewClient()
+	retryClient := newRetryClient()
 	retryClient.Logger = nil
 
 	resp, err := retryClient.Get(scalefastURL + fmt.Sprint(offset))

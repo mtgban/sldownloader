@@ -57,12 +57,19 @@ sldownloader [-page N] [-ocr] [URL ...]
 | Source | Protocol | Used for | Client |
 |---|---|---|---|
 | Scalefast Store Search API | JSON, paginated, no auth (`scalefastURL` in main.go) | Enumerating Secret Lair catalog products in catalog-crawl mode | `retryablehttp` (fresh client per call, no shared rate limiting) |
-| `secretlair.wizards.com/.../product/<id>` | HTML | The actual card list, title, and image gallery for one product | `retryablehttp` (package-level `retryablehttp.Get`, default logger — i.e. **not** silenced, unlike the other two `retryablehttp` clients in the codebase) |
+| `secretlair.wizards.com/.../product/<id>` | HTML | The actual card list, title, and image gallery for one product | `retryablehttp` (fresh client per call, default logger — i.e. **not** silenced, unlike the other two `retryablehttp` clients in the codebase) |
 | `scryfall.com/sets/sld` | HTML (scraped, **not** the JSON API) | The list of `(edition title, prebuilt search URI)` pairs used for the primary name-matching pass | `go-cleanhttp` default client, once per process run |
 | `api.scryfall.com` | REST/JSON, via [go-scryfall](https://github.com/BlueMonday/go-scryfall) | Card search/validation: resolving an edition's card list, and validating OCR/backfill guesses | Single shared, lazily-constructed, 8 req/s rate-limited client (`getScryfallClient`) — see §5.5 |
 
 None of these integrations use authentication. None but the Scryfall REST
 API client has explicit rate limiting applied by this tool.
+
+All three `retryablehttp` clients are built by `newRetryClient`, whose
+backoff (`cappedBackoff`) never waits longer than `RetryWaitMax` (30s by
+default) between attempts, even when the server's `Retry-After` asks for
+longer. Wizards answers some product pages with a 503 and
+`Retry-After: 3600`, which the library's `DefaultBackoff` would wait out in
+full before each of its four retries.
 
 ---
 
@@ -156,8 +163,8 @@ mode.
 
 ### 5.1 Fetch and title extraction
 
-1. `GET` the product URL via `retryablehttp.Get` (package-level client,
-   default retry policy, default — i.e. non-silenced — logger).
+1. `GET` the product URL via a fresh `newRetryClient()` (default retry
+   policy with a capped backoff, §3; default — i.e. non-silenced — logger).
 2. Parse the HTML with `goquery`.
 3. Extract the title from `h1[class="product-title"]`.
 4. Run it through `cleanTitle` (§8) to get `(cardSet.Filename, cardSet.Title)`.
