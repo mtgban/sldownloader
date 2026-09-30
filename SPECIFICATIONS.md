@@ -311,7 +311,7 @@ larger than a padded/longer one would lose to the longer string here.
 
 ## 6. Output
 
-### 6.1 File format (`dumpCards`)
+### 6.1 File format (`formatCards`)
 
 ```
 // NAME: <cardSet.Title>
@@ -342,7 +342,9 @@ larger than a padded/longer one would lose to the longer string here.
   upstream fork before invoking the tool (see AGENTS.md §2 / the workflow
   file). After a successful file write, `log.Printf("Created '%s' (%s)", ...)`
   is emitted to **stderr** (not part of the stdout contract described in
-  §4.2).
+  §4.2). If writing or closing the file fails, the partial file is removed
+  and the error returned, so a truncated decklist is never left behind for
+  the workflow to commit.
 
 ---
 
