@@ -43,6 +43,7 @@ against a couple of neighboring drops.
   `.txt` output via `dumpCards`) for each fixture, so a future change that
   alters output for any of these known-good cases fails loudly in `go
   test` instead of silently in production.
-- This pairs naturally with [005](005-ci-test-job.md) (CI needs to actually
-  run `go test` for this to have any effect) and gives
-  [015](015-golangci-lint-ci.md) something meaningful to build on.
+- The Test workflow ([test.yml](../.github/workflows/test.yml)) runs
+  `go test` on every PR, so fixtures added here are enforced as soon as
+  they land. This also gives [015](015-golangci-lint-ci.md) something
+  meaningful to build on.

@@ -15,7 +15,6 @@ specific items where the behavior they describe is the direct cause.
 | # | Title | Why it matters |
 |---|---|---|
 | [004](004-golden-file-regression-tests-for-scraping.md) | No offline regression tests for the scraping/matching pipeline | Every fix today needs a live network reproduction; nothing guards against silent markup-change regressions |
-| [005](005-ci-test-job.md) | CI never runs `go test` | `go vet`/`go test` failures can merge unnoticed |
 | [015](015-golangci-lint-ci.md) | No linter beyond `go vet` | Easy class of bugs (unchecked errors, shadowing, etc.) goes undetected |
 
 ## Operational hardening
