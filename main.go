@@ -178,9 +178,9 @@ func cleanLine(cardLine string) (string, int, detectedTags, error) {
 
 	// Unicode characters
 	cardLine = normalizeSpaces(cardLine)
-	cardLine = strings.Replace(cardLine, "’", "'", -1)
-	cardLine = strings.Replace(cardLine, "”", "\"", -1)
-	cardLine = strings.Replace(cardLine, "“", "\"", -1)
+	cardLine = strings.ReplaceAll(cardLine, "’", "'")
+	cardLine = strings.ReplaceAll(cardLine, "”", "\"")
+	cardLine = strings.ReplaceAll(cardLine, "“", "\"")
 	cardLine = strings.TrimSpace(cardLine)
 
 	// Only split on the first separator, card names may contain "x " too
@@ -217,7 +217,7 @@ func cleanLine(cardLine string) (string, int, detectedTags, error) {
 		!strings.Contains(cardLine, "Reclamation") &&
 		!strings.Contains(cardLine, "Arena") &&
 		!strings.Contains(cardLine, "Unlife") {
-		cardLine = strings.Replace(cardLine, "Phyrexian", "", -1)
+		cardLine = strings.ReplaceAll(cardLine, "Phyrexian", "")
 	}
 
 	// Some real card names contain a tag word, do not strip it from those
@@ -268,24 +268,24 @@ func cleanLine(cardLine string) (string, int, detectedTags, error) {
 
 	// Standardize DFC
 	if strings.Contains(cardLine, "//") && !strings.Contains(cardLine, " // ") {
-		cardLine = strings.Replace(cardLine, "//", " // ", -1)
+		cardLine = strings.ReplaceAll(cardLine, "//", " // ")
 	}
 	if strings.Contains(cardLine, " / ") && !strings.Contains(cardLine, " // ") {
-		cardLine = strings.Replace(cardLine, " / ", " // ", -1)
+		cardLine = strings.ReplaceAll(cardLine, " / ", " // ")
 	}
 
 	// Only keep one face of the card
 	cardLine = strings.Split(cardLine, " // ")[0]
 
 	// Use upstream sheet name
-	cardLine = strings.Replace(cardLine, "Sticker Sheets", "Sticker sheet", -1)
+	cardLine = strings.ReplaceAll(cardLine, "Sticker Sheets", "Sticker sheet")
 
 	// Typo
-	cardLine = strings.Replace(cardLine, "Xenegos", "Xenagos", -1)
-	cardLine = strings.Replace(cardLine, "Death Render", "Deathrender", -1)
-	cardLine = strings.Replace(cardLine, "All is Dust", "All Is Dust", -1)
-	cardLine = strings.Replace(cardLine, "Mistep", "Misstep", -1)
-	cardLine = strings.Replace(cardLine, "Triumph of Hordes", "Triumph of the Hordes", -1)
+	cardLine = strings.ReplaceAll(cardLine, "Xenegos", "Xenagos")
+	cardLine = strings.ReplaceAll(cardLine, "Death Render", "Deathrender")
+	cardLine = strings.ReplaceAll(cardLine, "All is Dust", "All Is Dust")
+	cardLine = strings.ReplaceAll(cardLine, "Mistep", "Misstep")
+	cardLine = strings.ReplaceAll(cardLine, "Triumph of Hordes", "Triumph of the Hordes")
 
 	return strings.TrimSpace(cardLine), num, tags, nil
 }
@@ -363,7 +363,7 @@ func cleanTitle(title string) (string, string) {
 
 	originalName := strings.TrimSpace(title)
 
-	title = strings.Replace(title, ":", "-", -1)
+	title = strings.ReplaceAll(title, ":", "-")
 	filename := strings.TrimSpace(title)
 
 	return filename, originalName
@@ -607,7 +607,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, d
 	for _, header := range headers {
 		a := strings.ToLower(cleanTitle)
 		b := strings.ToLower(header.Title)
-		if !(fuzzy.Match(a, b) || strings.Contains(a, b) || strings.Contains(b, a)) {
+		if !fuzzy.Match(a, b) && !strings.Contains(a, b) && !strings.Contains(b, a) {
 			continue
 		}
 
