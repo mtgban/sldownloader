@@ -30,8 +30,10 @@ recurring in new code.
   conservative default config (`errcheck`, `govet`, `staticcheck`,
   `unused`, `gosimple` are a sensible starting set for a project this
   size) as a `.golangci.yml` at the repo root.
-- Add a CI step running it, most naturally alongside
-  [005](005-ci-test-job.md)'s new test job.
+- Add a step running it to the Test workflow
+  ([test.yml](../.github/workflows/test.yml)). Pin a golangci-lint
+  release built with Go 1.25 or later; an older build fails to type-check
+  this module.
 - Run it locally first and fix (or explicitly `//nolint` with a reason)
   whatever it flags in the existing code before turning it on as a
   CI gate, so the first PR that adds the linter doesn't also need to fix

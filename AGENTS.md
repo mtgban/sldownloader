@@ -68,7 +68,7 @@ missing-header error, this is almost certainly why.
 
 ```bash
 go build ./...   # build the binary
-go vet ./...      # static checks — must be clean, CI-equivalent
+go vet ./...      # static checks — must be clean, CI runs it too
 go test ./...     # run main_test.go
 ```
 
@@ -106,7 +106,8 @@ the Scryfall rate limiter (8 req/s, see §4).
 | [main.go](main.go) | Everything except the Scryfall client: CLI entrypoint (`run`/`main`), Scalefast catalog API client, product-page scraping (`scrapeProduct`), all the name/title cleaning heuristics (`cleanLine`, `cleanTitle`, `nameTags`), OCR (`getNumberFromLink`, `extractNumber`), collector-number backfill, and file output (`dumpCards`). |
 | [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchURI`). |
 | [main_test.go](main_test.go) | Table-driven tests for the pure string-processing functions (`cleanLine`, `cleanTitle`, `collectorNumberValue`, `normalizeCardName`, `canonicalName`, `matchCardNumbers`, `extractNumber`) and for `processLine`'s duplicate-merging behavior. Nothing that touches the network is tested — `scrapeProduct`, `search`, `getProducts`, `getNumberFromLink` have no test coverage (see [todo/004](todo/004-golden-file-regression-tests-for-scraping.md)). |
-| [.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml) | The daily automation: build the tool, run it against a page range remembered in a GitHub Actions repo variable (`SLD_LAST_PAGE`), diff the output against a fork of `taw/magic-preconstructed-decks`, push a branch, open a PR upstream. **This workflow currently runs no tests** — see [todo/005-ci-test-job.md](todo/005-ci-test-job.md). |
+| [.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml) | The daily automation: build the tool, run it against a page range remembered in a GitHub Actions repo variable (`SLD_LAST_PAGE`), diff the output against a fork of `taw/magic-preconstructed-decks`, push a branch, open a PR upstream. Runs no tests itself. |
+| [.github/workflows/test.yml](.github/workflows/test.yml) | `go build`, `go vet` and `go test -race` on every pull request and every push to `master`. Kept separate from the daily sync workflow so that pull request code never runs in a job holding its tokens. |
 | [README.md](README.md) | User-facing install/usage instructions. |
 | [SPECIFICATIONS.md](SPECIFICATIONS.md) | Full behavioral/data-format specification of the tool. |
 | [todo/](todo/) | Improvement backlog, one file per item — see §7. |
@@ -319,7 +320,8 @@ already-done work), and update `todo/README.md`'s index accordingly.
 - **Gate every change locally before opening a PR**: `go build ./...`,
   `go vet ./...`, `go test ./...` all clean (remember the CGO flags from
   §2 on macOS), plus, for anything touching the scraping/matching logic, a
-  live run per §6.
+  live run per §6. The Test workflow re-runs the first three on the PR;
+  it cannot do the live run for you.
 - **Never widen the OCR digit-length filter** (§4.2) — this has been asked
   for before and explicitly rejected; treat it as settled unless the
   underlying domain assumption (SLD numbers are 3+ digits) is challenged

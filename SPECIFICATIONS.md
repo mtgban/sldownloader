@@ -753,8 +753,6 @@ in its own `todo/` file:
 - No offline/fixture test coverage for any network-touching function
   (§table in AGENTS.md §3) —
   [todo/004](todo/004-golden-file-regression-tests-for-scraping.md)
-- CI runs no test step (see AGENTS.md §3) —
-  [todo/005](todo/005-ci-test-job.md)
 
 See [todo/README.md](todo/README.md) for the full backlog, including items
 that are process/tooling improvements rather than direct spec-level
