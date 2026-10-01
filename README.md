@@ -39,6 +39,8 @@ On macOS the headers live in the Homebrew prefix, so point cgo at them:
 CGO_CPPFLAGS="-I$(brew --prefix)/include" CGO_LDFLAGS="-L$(brew --prefix)/lib" go install github.com/mtgban/sldownloader@latest
 ```
 
+From a checkout, `make build` builds `./sldownloader` with those flags set, and `make check` runs the tests and linters.
+
 ---
 
 ## Usage

@@ -51,36 +51,32 @@ brew install tesseract leptonica
 
 On Debian/Ubuntu the headers land on the default include path and nothing
 further is needed. **On macOS (Homebrew), the headers live under the Homebrew
-prefix and are not on the default cgo search path**, so every build/vet/test
-invocation needs:
+prefix and are not on the default cgo search path**; the Makefile sets
+`CGO_CPPFLAGS`/`CGO_LDFLAGS` from `brew --prefix`, and finds `go` and `brew`
+by full path when `/opt/homebrew/bin` is not on `PATH`.
+
+### Commands
+
+```bash
+make build   # build ./sldownloader
+make vet     # static checks — must be clean, CI runs it too
+make test    # go test -race
+make lint    # golangci-lint, at the version CI pins in test.yml
+make check   # all four: the gate before every PR (§8)
+```
+
+Calling `go` directly works too, but on macOS only with the two flags
+exported first:
 
 ```bash
 export CGO_CPPFLAGS="-I$(brew --prefix)/include"
 export CGO_LDFLAGS="-L$(brew --prefix)/lib"
 ```
 
-Export these once per shell session (or prefix every command) before running
-any of the commands below. Forgetting this is the single most common source
-of a confusing local build failure in this repo — if `go build` fails with a
-missing-header error, this is almost certainly why.
-
-### Commands
-
-```bash
-go build ./...   # build the binary
-go vet ./...      # static checks — must be clean, CI runs it too
-go test ./...     # run main_test.go
-
-# lint with .golangci.yml, at the version CI pins in test.yml
-go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run ./...
-```
-
-Run golangci-lint through `go run` at the pinned version rather than a
+Without them `go build` fails with the missing-header error above. Run
+golangci-lint at the pinned version (`make lint` does) rather than a
 locally installed binary: a build made with a Go release older than the
 one in `go.mod` fails to type-check this module.
-
-There is currently no `Makefile`/`justfile` wrapping the CGO flags (see
-[todo/014-makefile-for-cgo-flags.md](todo/014-makefile-for-cgo-flags.md)).
 
 ### Running the tool locally
 
@@ -107,6 +103,7 @@ the Scryfall rate limiter (2 searches/s, see §4.4).
 
 | File | Contents |
 |---|---|
+| [Makefile](Makefile) | `build`, `vet`, `test`, `lint` and `check`, with the macOS cgo flags set (§2). |
 | [main.go](main.go) | Everything except the Scryfall client: CLI entrypoint (`run`/`main`), Scalefast catalog API client, product-page scraping (`scrapeProduct`, run as `fetchProductPage`, `parseCardList`, `matchEdition`, `ocrNumbers` and `backfillNumbers`), all the name/title cleaning heuristics (`cleanLine`, `cleanTitle`, `nameTags`), OCR (`getNumberFromLink`, `extractNumber`), collector-number backfill, and file output (`dumpCards`). |
 | [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the card-name catalog that protects real names from `cleanLine` (`loadCardNames`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchWithClient`, `searchURI`), which tells "no such card" apart from a Scryfall failure (`isScryfallError`). |
 | [main_test.go](main_test.go) | Table-driven tests for the pure string-processing functions (`cleanLine`, `cleanTitle`, `collectorNumberValue`, `normalizeCardName`, `canonicalName`, `matchCardNumbers`, `extractNumber`) and for `processLine`'s duplicate-merging behavior. The scraping pipeline is tested offline too: `parseCardList`, `galleryFoldMode` and `scrapeProduct` on short inline HTML snippets (`scrapeProduct` through a local `httptest` server), `matchEdition` and `backfillNumbers` against canned search results (`fakeSearch`). `searchWithClient`'s handling of Scryfall errors is tested against an `httptest` server replaying Scryfall's error bodies, and `getNumberFromLink` only on a blank image. Product pages are never saved into the repo: tests use hand-written snippets of just the markup the scraper reads. |
@@ -364,10 +361,9 @@ already-done work), and update `todo/README.md`'s index accordingly.
   needs an explicit, separately-given instruction — a repo's history of
   commits landing on `master` is not evidence that direct pushes are fine;
   it may just mean PRs get merged promptly.
-- **Gate every change locally before opening a PR**: `go build ./...`,
-  `go vet ./...`, `go test ./...` and golangci-lint (§2) all clean
-  (remember the CGO flags from §2 on macOS), plus, for anything touching
-  the scraping/matching logic, a live run per §6. The Test workflow
+- **Gate every change locally before opening a PR**: `make check` (build,
+  vet, test and golangci-lint, §2) clean, plus, for anything touching the
+  scraping/matching logic, a live run per §6. The Test workflow
   re-runs the first four on the PR; it cannot do the live run for you.
 - **Update [SPECIFICATIONS.md](SPECIFICATIONS.md) in the same PR** as
   any change to behavior it describes: grep it for every function you
