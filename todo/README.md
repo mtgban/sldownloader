@@ -41,7 +41,6 @@ specific items where the behavior they describe is the direct cause.
 | [012](012-centralize-css-selectors.md) | CSS selector strings are scattered and unlabeled | A site markup change fails silently and is hard to triage |
 | [013](013-version-flag.md) | No `-version` flag or build-time version stamping | Hard to tell which build produced a given decklist file or CI run |
 | [014](014-makefile-for-cgo-flags.md) | No wrapper for the macOS CGO flags | New contributors hit the same confusing build failure documented in AGENTS.md §2 |
-| [019](019-split-scrapeproduct.md) | `scrapeProduct` does everything in one 190-line function | None of its logic can be unit tested without the network; blocks [004](004-golden-file-regression-tests-for-scraping.md) |
 
 ## Dependencies
 
