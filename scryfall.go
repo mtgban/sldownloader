@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net/http"
 	"net/url"
 	"slices"
 	"strings"
@@ -14,7 +13,6 @@ import (
 
 	"github.com/BlueMonday/go-scryfall"
 	"github.com/PuerkitoBio/goquery"
-	"github.com/hashicorp/go-cleanhttp"
 	"go.uber.org/ratelimit"
 )
 
@@ -59,11 +57,7 @@ type scryfallHeader struct {
 }
 
 func loadScryfallHeaders(ctx context.Context) ([]scryfallHeader, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, scryfallURL, http.NoBody)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := cleanhttp.DefaultClient().Do(req)
+	resp, err := httpGet(ctx, scryfallURL)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +68,15 @@ func loadScryfallHeaders(ctx context.Context) ([]scryfallHeader, error) {
 		return nil, err
 	}
 
+	headers := parseEditionHeaders(doc)
+	if len(headers) == 0 {
+		return nil, errors.New("no Secret Lair editions found on " + scryfallURL)
+	}
+	return headers, nil
+}
+
+// Read each edition's title and search link off the Secret Lair set page
+func parseEditionHeaders(doc *goquery.Document) []scryfallHeader {
 	var headers []scryfallHeader
 	doc.Find(titleClass).Each(func(i int, s *goquery.Selection) {
 		title := s.Text()
@@ -86,8 +89,7 @@ func loadScryfallHeaders(ctx context.Context) ([]scryfallHeader, error) {
 			URI:   uri,
 		})
 	})
-
-	return headers, nil
+	return headers
 }
 
 // Load every real card name, which cleanLine must never cut into

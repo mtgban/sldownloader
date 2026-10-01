@@ -14,12 +14,10 @@ specific items where the behavior they describe is the direct cause.
 
 | # | Title | Why it matters |
 |---|---|---|
-| [002](002-shared-http-client-with-timeout-and-status-checks.md) | No per-request timeout or status-code checks on the Wizards, Scalefast and scryfall.com fetches | One unanswered request can cost the whole daily run; a 404 is misreported as "no cards found" |
 | [003](003-scryfall-search-pagination.md) | Scryfall search results are not paginated | Silent truncation risk if ever queried against a large result set |
 | [006](006-structured-logging.md) | Logging is unlevelled `log.Println`/`Printf` calls throughout | No way to quiet routine output or get machine-parseable diagnostics |
 | [007](007-context-cancellation-on-signal.md) | `context.Background()` is never cancelled | A `-page` crawl can't be interrupted cleanly mid-request |
 | [009](009-dedupe-scryfall-lookups-per-product.md) | Repeated identical Scryfall queries aren't cached within a run | Wastes rate-limit headroom during long catalog crawls |
-| [010](010-user-agent-on-wizards-scrape.md) | No identifying User-Agent on the Wizards/Scalefast HTTP clients | Harder to debug a block; inconsistent with the Scryfall client's own practice |
 
 ## Performance
 

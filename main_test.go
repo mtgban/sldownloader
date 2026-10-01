@@ -455,7 +455,7 @@ func TestGetNumberFromLinkBlankImage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	num, err := getNumberFromLink(server.URL)
+	num, err := getNumberFromLink(context.Background(), server.URL)
 	if err == nil {
 		t.Errorf("expected an error for an image with no number, got %q", num)
 	}
@@ -1024,5 +1024,51 @@ func TestScrapeProduct(t *testing.T) {
 
 	if _, err := scrapeProduct(context.Background(), nil, testNames, server.URL+"/us/product/1254424", false); err == nil || err.Error() != "no cards found" {
 		t.Errorf("expected no cards found, got %v", err)
+	}
+}
+
+func TestHTTPGet(t *testing.T) {
+	var userAgent atomic.Value
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userAgent.Store(r.UserAgent())
+		if r.URL.Path == "/gone" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprint(w, "ok")
+	}))
+	defer server.Close()
+
+	resp, err := httpGet(context.Background(), server.URL+"/page")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if ua := userAgent.Load(); ua != "sldownloader/1.0 (+https://github.com/mtgban/sldownloader)" {
+		t.Errorf("User-Agent = %q", ua)
+	}
+
+	// A removed page is an error, not an empty page to parse
+	if _, err := httpGet(context.Background(), server.URL+"/gone"); err == nil || !strings.Contains(err.Error(), "404 Not Found") {
+		t.Errorf("expected a 404 error, got %v", err)
+	}
+}
+
+func TestParseEditionHeaders(t *testing.T) {
+	doc := testDocument(t, `<div class="card-grid-header-content">
+<a href="https://scryfall.com/search?q=e%3Asld+cn%E2%89%A52821+cn%E2%89%A42825">Lofi Girl: Beats to Cast To</a>
+• 5 cards</div>`)
+	want := []scryfallHeader{{
+		Title: "Lofi Girl: Beats to Cast To",
+		URI:   "https://scryfall.com/search?q=e%3Asld+cn%E2%89%A52821+cn%E2%89%A42825",
+	}}
+	if headers := parseEditionHeaders(doc); !slices.Equal(headers, want) {
+		t.Errorf("parseEditionHeaders() = %+v, want %+v", headers, want)
+	}
+
+	// A page whose markup no longer has the editions finds none, which
+	// loadScryfallHeaders reports as an error
+	if headers := parseEditionHeaders(testDocument(t, `<h1>Secret Lair Drop</h1>`)); len(headers) != 0 {
+		t.Errorf("expected no editions, got %+v", headers)
 	}
 }

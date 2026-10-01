@@ -30,16 +30,45 @@ func cappedBackoff(minWait, maxWait time.Duration, attempt int, resp *http.Respo
 	return min(retryablehttp.DefaultBackoff(minWait, maxWait, attempt, resp), maxWait)
 }
 
+// Sent with every request outside the Scryfall API, which has its own
+const userAgent = "sldownloader/1.0 (+https://github.com/mtgban/sldownloader)"
+
+// The longest any single attempt waits for its response; retries follow
+const requestTimeout = 60 * time.Second
+
 func newRetryClient() *retryablehttp.Client {
 	client := retryablehttp.NewClient()
 	client.Backoff = cappedBackoff
+	client.HTTPClient.Timeout = requestTimeout
 	return client
 }
 
-func getImageBytes(link string) ([]byte, error) {
-	retryClient := newRetryClient()
-	retryClient.Logger = nil
-	resp, err := retryClient.Get(link)
+// One client for every page, image and catalog fetch, so connections are
+// reused across a run; it logs each request and retry to stderr
+var httpClient = newRetryClient()
+
+// GET link, failing on any status outside 2xx so that an error page is never
+// parsed as content; the caller closes the body
+func httpGet(ctx context.Context, link string) (*http.Response, error) {
+	req, err := retryablehttp.NewRequestWithContext(ctx, http.MethodGet, link, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		resp.Body.Close()
+		return nil, fmt.Errorf("GET %s: %s", link, resp.Status)
+	}
+	return resp, nil
+}
+
+func getImageBytes(ctx context.Context, link string) ([]byte, error) {
+	resp, err := httpGet(ctx, link)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +94,7 @@ func extractNumber(fields []string, minLen int) string {
 	return ""
 }
 
-func getNumberFromLink(link string) (string, error) {
+func getNumberFromLink(ctx context.Context, link string) (string, error) {
 	client := gosseract.NewClient()
 	defer client.Close()
 
@@ -75,7 +104,7 @@ func getNumberFromLink(link string) (string, error) {
 		return "", err
 	}
 
-	data, err := getImageBytes(link)
+	data, err := getImageBytes(ctx, link)
 	if err != nil {
 		return "", err
 	}
@@ -651,7 +680,7 @@ func matchCardNumbers(cards, results []CardData) {
 type searchFunc func(ctx context.Context, query string) ([]CardData, error)
 
 func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNames, link string, doOCR bool) (*CardSet, error) {
-	doc, err := fetchProductPage(link)
+	doc, err := fetchProductPage(ctx, link)
 	if err != nil {
 		return nil, err
 	}
@@ -705,8 +734,8 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 	return &cardSet, nil
 }
 
-func fetchProductPage(link string) (*goquery.Document, error) {
-	resp, err := newRetryClient().Get(link)
+func fetchProductPage(ctx context.Context, link string) (*goquery.Document, error) {
+	resp, err := httpGet(ctx, link)
 	if err != nil {
 		return nil, err
 	}
@@ -845,7 +874,7 @@ func ocrNumbers(ctx context.Context, search searchFunc, doc *goquery.Document, c
 			imgLink = "https://secretlair.wizards.com" + imgLink
 		}
 
-		num, err := getNumberFromLink(imgLink)
+		num, err := getNumberFromLink(ctx, imgLink)
 		if err != nil {
 			log.Println(imgLink, err)
 			return true
@@ -1008,7 +1037,7 @@ func run() int {
 
 	headers, err := loadScryfallHeaders(ctx)
 	if err != nil {
-		log.Println("Unable to query scryfall")
+		log.Println("Unable to query scryfall:", err)
 		return 1
 	}
 	log.Println("Parsed Scryfall set page,", len(headers), "products found")
@@ -1135,7 +1164,7 @@ func crawl(ctx context.Context, headers []scryfallHeader, names *cardNames, star
 	lastPage := -1
 
 	for page := startPage; ; page++ {
-		resp, err := getProducts(page * maxItemsInResp)
+		resp, err := getProducts(ctx, page*maxItemsInResp)
 		if err != nil {
 			report.fail(page, fmt.Sprintf("catalog page %d: %v", page, err))
 			break
@@ -1210,11 +1239,8 @@ func (p ScalefastProduct) title() string {
 	return p.ProductID
 }
 
-func getProducts(offset int) (*ScalefastResponse, error) {
-	retryClient := newRetryClient()
-	retryClient.Logger = nil
-
-	resp, err := retryClient.Get(scalefastURL + fmt.Sprint(offset))
+func getProducts(ctx context.Context, offset int) (*ScalefastResponse, error) {
+	resp, err := httpGet(ctx, scalefastURL+fmt.Sprint(offset))
 	if err != nil {
 		return nil, err
 	}
