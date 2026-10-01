@@ -55,6 +55,8 @@ or with an explict product page URL:
 ./sldownloader https://secretlair.wizards.com/eu/en/product/1002048/showcase-bloomburrow
 ```
 
+`./sldownloader -version` prints the version and commit the binary was built from.
+
 ---
 
 ## License

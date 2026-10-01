@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
@@ -1037,7 +1038,18 @@ func dumpCards(cardSet *CardSet, link, releaseDate, filename string) error {
 func run() int {
 	pageOpt := flag.Int("page", -1, "Which page to start from (0 for the very beginning)")
 	doOCROpt := flag.Bool("ocr", false, "Enable OCR to derive collector numbers")
+	versionOpt := flag.Bool("version", false, "Print the version and exit")
 	flag.Parse()
+
+	version := "unknown"
+	if info, ok := debug.ReadBuildInfo(); ok {
+		version = formatVersion(info)
+	}
+	if *versionOpt {
+		fmt.Println("sldownloader", version)
+		return 0
+	}
+	log.Println("sldownloader", version)
 
 	// Ctrl-C or a cancelled CI job stops the run at the next product; a
 	// second signal kills it outright
@@ -1228,6 +1240,31 @@ pages:
 
 	report.nextPage = report.resumePage(startPage, lastPage)
 	return report
+}
+
+// The module version this binary was built from, which Go derives from the
+// commit (eg "v0.0.0-20261001113826-4d78459cd2c3+dirty"); when the version
+// does not carry the commit, as in a "(devel)" build, the commit follows it
+func formatVersion(info *debug.BuildInfo) string {
+	version := info.Main.Version
+	if version == "" {
+		version = "(unknown)"
+	}
+	var revision, dirty string
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value[:min(12, len(setting.Value))]
+		case "vcs.modified":
+			if setting.Value == "true" {
+				dirty = "+dirty"
+			}
+		}
+	}
+	if revision != "" && !strings.Contains(version, revision) {
+		version += " " + revision + dirty
+	}
+	return version
 }
 
 func main() {

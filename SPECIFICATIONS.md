@@ -29,12 +29,14 @@ under `data/sld/sld/`.
 
 ```
 sldownloader [-page N] [-ocr] [URL ...]
+sldownloader -version
 ```
 
 | Flag/arg | Type | Default | Meaning |
 |---|---|---|---|
 | `-page` | int | `-1` | Starting page for catalog-crawl mode. `0` starts from the very beginning of the catalog. A negative value (the default) means "not set." |
 | `-ocr` | bool | `false` | Force an OCR pass even when the Scryfall edition match succeeds. OCR still only fills in cards that don't already have a number from the edition match (see §5.3) — it never overrides an already-matched number. |
+| `-version` | bool | `false` | Print `sldownloader <version>` and exit `0` without fetching anything. The version is the module version Go stamps into the build, which names the commit (eg `v0.0.0-20261001113826-4d78459cd2c3+dirty`); a build whose version does not carry the commit, like a `(devel)` build, gets the commit appended. Every other run logs the same line to stderr first, so a CI log shows which commit ran. |
 | positional args | `[]string` | none | One or more explicit `secretlair.wizards.com` product page URLs. When present, these are processed **instead of** catalog-crawl mode, regardless of `-page`. |
 
 ### 2.1 Mode selection
@@ -415,6 +417,7 @@ unnumbered (§6.1).
 
 | Path | Exit code |
 |---|---|
+| `-version` | `0` |
 | Scryfall header load fails (`loadScryfallHeaders` errors) | `1` |
 | Scryfall card-name catalog fails to load (`loadCardNames` errors) | `1` |
 | Explicit-URL mode, **all** URLs scraped/dumped successfully | `0` |
