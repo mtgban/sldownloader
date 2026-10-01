@@ -281,10 +281,10 @@ func TestCollectorNumberValue(t *testing.T) {
 
 func TestNormalizeCardName(t *testing.T) {
 	if normalizeCardName("Dosan, the Falling Leaf") != normalizeCardName("Dosan the Falling Leaf") {
-		t.Errorf("expected names to match ignoring punctuation")
+		t.Error("expected names to match ignoring punctuation")
 	}
 	if normalizeCardName("Fog") == normalizeCardName("Fog Bank") {
-		t.Errorf("different names should not match")
+		t.Error("different names should not match")
 	}
 }
 
