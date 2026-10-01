@@ -32,16 +32,29 @@ jobs:
           sudo apt-get remove --purge man-db     # skip rebuilding caches
           sudo apt-get install -y tesseract-ocr libleptonica-dev libtesseract-dev
 
-      - name: Build
-        run: go build ./...
+      - name: Verify formatting
+        run: |
+          unformatted=$(gofmt -s -l .)
+          if [ -n "$unformatted" ]; then
+            echo "these files are not gofmt-ed:"
+            echo "$unformatted"
+            exit 1
+          fi
 
       - name: Vet
         run: go vet ./...
 
-      - name: Lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.14.0
+      - name: Revive
+        run: go run github.com/mgechev/revive@v1.13.0 -set_exit_status -config .revive.toml ./...
+
+      - name: Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@2026.2.1 ./...
+
+      - name: Govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+      - name: Build
+        run: go build ./...
 
       - name: Test
         run: go test -race ./...

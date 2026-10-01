@@ -61,7 +61,7 @@ by full path when `/opt/homebrew/bin` is not on `PATH`.
 make build   # build ./sldownloader
 make vet     # static checks — must be clean, CI runs it too
 make test    # go test -race
-make lint    # golangci-lint, at the version CI pins in test.yml
+make lint    # gofmt -s, revive, staticcheck, govulncheck, at the versions CI pins
 make check   # all four: the gate before every PR (§8)
 ```
 
@@ -74,9 +74,9 @@ export CGO_LDFLAGS="-L$(brew --prefix)/lib"
 ```
 
 Without them `go build` fails with the missing-header error above. Run
-golangci-lint at the pinned version (`make lint` does) rather than a
-locally installed binary: a build made with a Go release older than the
-one in `go.mod` fails to type-check this module.
+revive and staticcheck at the pinned versions (`make lint` does) rather
+than a locally installed binary: a build made with a Go release older than
+the one in `go.mod` fails to type-check this module.
 
 ### Running the tool locally
 
@@ -110,7 +110,7 @@ due to network I/O and the Scryfall rate limiter (2 searches/s, see §4.4).
 | [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the card-name catalog that protects real names from `cleanLine` (`loadCardNames`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchWithClient`, `searchURI`), which tells "no such card" apart from a Scryfall failure (`isScryfallError`). |
 | [main_test.go](main_test.go) | Table-driven tests for the string helpers (`cleanLine`, `cleanTitle`, `matchCardNumbers` and the rest), and offline tests of every pipeline step: `parseCardList`, `galleryFoldMode`, `parseEditionHeaders` and `scrapeProduct` on short hand-written HTML snippets (`scrapeProduct` and `httpGet` through a local `httptest` server), `matchEdition` and `backfillNumbers` against canned search results (`fakeSearch`), `searchWithClient` and `searchCache` against replayed Scryfall replies, `getNumberFromLink` on a blank image, and the crawl's report and interruption. No product page is saved into the repo. |
 | [.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml) | The daily automation: build the tool, run it against a page range remembered in a GitHub Actions repo variable (`SLD_LAST_PAGE`), diff the output against a fork of `taw/magic-preconstructed-decks`, push a branch, open a PR upstream. Runs no tests itself. |
-| [.github/workflows/test.yml](.github/workflows/test.yml) | Build, vet, golangci-lint and `go test -race` on every pull request and every push to `master`. Kept separate from the daily sync workflow so that pull request code never runs in a job holding its tokens. |
+| [.github/workflows/test.yml](.github/workflows/test.yml) | Build, vet, gofmt -s, revive, staticcheck, govulncheck and `go test -race` on every pull request and every push to `master`. Kept separate from the daily sync workflow so that pull request code never runs in a job holding its tokens. |
 | [.github/dependabot.yml](.github/dependabot.yml) | Weekly grouped version-update PRs for Go modules and for GitHub Actions; the Test workflow gates them. |
 | [README.md](README.md) | User-facing install/usage instructions. |
 | [SPECIFICATIONS.md](SPECIFICATIONS.md) | Full behavioral/data-format specification of the tool. |
@@ -367,9 +367,10 @@ already-done work), and update `todo/README.md`'s index accordingly.
   commits landing on `master` is not evidence that direct pushes are fine;
   it may just mean PRs get merged promptly.
 - **Gate every change locally before opening a PR**: `make check` (build,
-  vet, test and golangci-lint, §2) clean, plus, for anything touching the
-  scraping/matching logic, a live run per §6. The Test workflow
-  re-runs the first four on the PR; it cannot do the live run for you.
+  vet, test, gofmt, revive, staticcheck and govulncheck, §2) clean, plus,
+  for anything touching the scraping/matching logic, a live run per §6.
+  The Test workflow re-runs those gates on the PR; it cannot do the live
+  run for you.
 - **Update [SPECIFICATIONS.md](SPECIFICATIONS.md) in the same PR** as
   any change to behavior it describes: grep it for every function you
   touched. People and agents read it instead of the code, so a stale

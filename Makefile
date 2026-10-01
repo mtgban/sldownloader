@@ -4,7 +4,9 @@
 # /opt/homebrew/bin is not on PATH.
 
 GO ?= $(shell command -v go 2>/dev/null || echo /opt/homebrew/bin/go)
-GOLANGCI_LINT_VERSION := v2.14.0
+GOFMT ?= $(dir $(GO))gofmt
+REVIVE_VERSION := v1.13.0
+STATICCHECK_VERSION := 2026.2.1
 
 ifeq ($(shell uname -s),Darwin)
 BREW ?= $(shell command -v brew 2>/dev/null || echo /opt/homebrew/bin/brew)
@@ -25,7 +27,10 @@ test:
 	$(GO) test -race ./...
 
 lint:
-	$(GO) run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) run ./...
+	test -z "$$($(GOFMT) -s -l .)" || { echo "files are not gofmt-ed"; exit 1; }
+	$(GO) run github.com/mgechev/revive@$(REVIVE_VERSION) -set_exit_status -config .revive.toml ./...
+	$(GO) run honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION) ./...
+	$(GO) run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 # The gate every change passes before a PR (AGENTS.md §8)
 check: build vet test lint
