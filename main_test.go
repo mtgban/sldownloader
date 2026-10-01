@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/go-retryablehttp"
+	"go.uber.org/ratelimit"
 )
 
 // A few real card names, standing in for Scryfall's catalog
@@ -513,5 +514,28 @@ func TestCrawlReportFail(t *testing.T) {
 	want := "Secret Lair x Lofi Girl: Beats to Cast To (link), page 21: giving up after 5 attempt(s)"
 	if len(report.failures) != 1 || report.failures[0] != want {
 		t.Errorf("failures = %q, want [%q]", report.failures, want)
+	}
+}
+
+// A clock where sleeping only moves time forward
+type fakeClock struct{ now time.Time }
+
+func (c *fakeClock) Now() time.Time        { return c.now }
+func (c *fakeClock) Sleep(d time.Duration) { c.now = c.now.Add(d) }
+
+// Scryfall allows 2 searches per second, even right after a long idle
+func TestScryfallLimiterNoBurst(t *testing.T) {
+	clock := &fakeClock{now: time.Unix(0, 0)}
+	limiter := newScryfallLimiter(ratelimit.WithClock(clock))
+
+	limiter.Take()
+	clock.Sleep(time.Minute)
+	prev := limiter.Take()
+	for i := range 10 {
+		next := limiter.Take()
+		if gap := next.Sub(prev); gap < 500*time.Millisecond {
+			t.Fatalf("request %d after idle came %v after the previous one", i+2, gap)
+		}
+		prev = next
 	}
 }

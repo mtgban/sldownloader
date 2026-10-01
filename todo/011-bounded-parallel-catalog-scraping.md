@@ -25,9 +25,10 @@ new products per day).
 - Introduce a small bounded worker pool (e.g. `errgroup.Group` with
   `SetLimit`, or a manual semaphore channel) around the per-product
   scrape-and-dump call, capping concurrency at a conservative number
-  (single digits) to stay well under Scryfall's 10 req/s ceiling even with
-  multiple products in flight simultaneously issuing their own Scryfall
-  queries.
+  (single digits). Scryfall time does not shrink with it: `/cards/search`
+  allows 2 req/s, and the shared client spaces every product's searches
+  500ms apart, so concurrency only overlaps the Wizards fetches and OCR
+  with that queue.
 - The existing shared, rate-limited Scryfall client (`getScryfallClient`,
   §9.2 in SPECIFICATIONS.md) already serializes/paces Scryfall requests
   correctly across goroutines (the underlying `ratelimit.Limiter` is safe

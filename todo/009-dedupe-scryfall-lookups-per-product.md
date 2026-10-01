@@ -16,10 +16,10 @@ identical to one already made earlier in the same run.
 ## Impact
 
 Not a correctness issue — every query is already validated independently
-and correctly. It is a real, if modest, tax on the 8 req/s rate-limit
-budget (§9.2 in SPECIFICATIONS.md): every avoidable duplicate request is
-one fewer request of headroom against Scryfall's 10 req/s hard limit
-during a long catalog crawl, and it slows down the crawl for no benefit.
+and correctly. It is a real tax on the 2 req/s rate-limit budget for
+`/cards/search` (§9.2 in SPECIFICATIONS.md): the shared client spaces
+searches 500ms apart, so every avoidable duplicate adds half a second to
+a catalog crawl for no benefit.
 
 ## Suggested approach
 
