@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 90
     steps:
       - name: Checkout sldownloader repo
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Read last page from repo variable
         id: state
@@ -36,7 +36,7 @@ jobs:
           echo "last_page=$PAGE" >> $GITHUB_OUTPUT
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           go-version-file: 'go.mod'
           check-latest: true
