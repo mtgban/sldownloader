@@ -100,7 +100,7 @@ build the header index and live HTTP fetches of the product pages — there is
 no offline/fixture mode yet (see
 [todo/004-golden-file-regression-tests-for-scraping.md](todo/004-golden-file-regression-tests-for-scraping.md)).
 Expect a single product run to take several seconds due to network I/O and
-the Scryfall rate limiter (8 req/s, see §4).
+the Scryfall rate limiter (2 searches/s, see §4.4).
 
 ---
 
@@ -207,15 +207,24 @@ When you add a new special case, add a matching table-driven test entry in
 
 ### 4.4 Scryfall rate limiting
 
-Scryfall requires staying under 10 requests/second; ignoring this gets you a
-`rate_limited` error and, per Scryfall's own warning text, risks a network
-block. `getScryfallClient` (scryfall.go) enforces **8 req/s** via a single
-shared, lazily-initialized `*scryfall.Client` (`sync.Once`). This sharing is
+Scryfall's [rate limits](https://scryfall.com/docs/api/rate-limits) allow
+`/cards/search` **2 requests/second** (10/s for most other endpoints), and
+every `search`/`searchURI` call is a `/cards/search`. Exceeding that gets a
+`rate_limited` answer and a lockout of 30–60 seconds, and, per Scryfall's
+own warning text, risks a network block. `getScryfallClient` (scryfall.go)
+enforces **2 req/s** via a single shared, lazily-initialized
+`*scryfall.Client` (`sync.Once`). This sharing is
 load-bearing: the underlying `go-scryfall` rate limiter lives on the client
 instance, so constructing a fresh client per call (as the code used to do)
 defeats it entirely — no request pacing happens without a shared client. If
 you ever see per-call `scryfall.NewClient()` reappear in a diff, that is
 almost certainly reintroducing this exact bug.
+
+The limiter also has **no burst slack** (`newScryfallLimiter`).
+`ratelimit.New` defaults to a slack of 10, which banks the time spent on
+OCR and Wizards page fetches and then lets up to 10 searches through back
+to back; `TestScryfallLimiterNoBurst` fails if that comes back. The budget
+is per IP, so crawls running at once from one machine share it (§6).
 
 The Wizards product-page and Scalefast catalog fetches have **no** rate
 limiting or shared-client story beyond `retryablehttp`'s default retry
@@ -295,6 +304,11 @@ a parsing fix is:
 4. Add or update a table-driven test case in `main_test.go` that encodes the
    fixed behavior, so the next person doesn't need to repeat the live
    reproduction.
+
+Before a `-page` crawl, check `pgrep -fl 'sld.* -page'` for one already
+running from this machine, and never run two back to back: they share
+Scryfall's per-IP search budget (§4.4), and the second one gets locked out
+with `rate_limited` answers.
 
 If the bug already shipped into an open PR against
 `taw/magic-preconstructed-decks` (i.e. bad `.txt` files are already sitting

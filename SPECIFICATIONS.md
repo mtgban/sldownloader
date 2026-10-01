@@ -59,7 +59,7 @@ sldownloader [-page N] [-ocr] [URL ...]
 | Scalefast Store Search API | JSON, paginated, no auth (`scalefastURL` in main.go) | Enumerating Secret Lair catalog products in catalog-crawl mode | `retryablehttp` (fresh client per call, no shared rate limiting) |
 | `secretlair.wizards.com/.../product/<id>` | HTML | The actual card list, title, and image gallery for one product | `retryablehttp` (fresh client per call, default logger — i.e. **not** silenced, unlike the other two `retryablehttp` clients in the codebase) |
 | `scryfall.com/sets/sld` | HTML (scraped, **not** the JSON API) | The list of `(edition title, prebuilt search URI)` pairs used for the primary name-matching pass | `go-cleanhttp` default client, once per process run |
-| `api.scryfall.com` | REST/JSON, via [go-scryfall](https://github.com/BlueMonday/go-scryfall) | Card search/validation: resolving an edition's card list, and validating OCR/backfill guesses; once per run, the full card-name catalog that protects real names from `cleanLine`'s cuts (§9.5) | Single shared, lazily-constructed, 8 req/s rate-limited client (`getScryfallClient`) — see §5.5 |
+| `api.scryfall.com` | REST/JSON, via [go-scryfall](https://github.com/BlueMonday/go-scryfall) | Card search/validation: resolving an edition's card list, and validating OCR/backfill guesses; once per run, the full card-name catalog that protects real names from `cleanLine`'s cuts (§9.5) | Single shared, lazily-constructed client rate-limited to 2 req/s with no burst (`getScryfallClient`) — see §9.2 |
 
 None of these integrations use authentication. None but the Scryfall REST
 API client has explicit rate limiting applied by this tool.
@@ -636,8 +636,21 @@ guaranteed stable across Scryfall site changes).
 A single `*scryfall.Client` is constructed exactly once per process
 (`sync.Once`), configured with:
 - `WithUserAgent("sldownloader/1.0")`
-- `WithLimiter(ratelimit.New(8))` — 8 requests/second, leaving margin under
-  Scryfall's documented "less than 10 requests per second" requirement.
+- `WithLimiter(newScryfallLimiter())` — `ratelimit.New(2,
+  ratelimit.WithoutSlack)`: one request every 500ms, Scryfall's hard limit
+  for `/cards/search` ([rate limits](https://scryfall.com/docs/api/rate-limits)).
+  Every `search`/`searchURI` call (§9.3, §9.4) is a `/cards/search`; the
+  only other API call, the card-name catalog (§9.5), is one request per
+  run, under the 10 requests/second Scryfall allows elsewhere.
+
+`WithoutSlack` matters as much as the rate. `ratelimit.New` defaults to a
+slack of 10: time spent not searching (OCR, Wizards page fetches) is
+banked, and up to 10 requests then go out back to back. Scryfall answers a
+burst like that with `rate_limited` and locks the client out for 30–60
+seconds (its docs say 30, the error text says 60).
+`TestScryfallLimiterNoBurst` checks that requests stay 500ms apart right
+after a long idle. Every search therefore costs at least half a second of
+run time.
 
 **This sharing is load-bearing.** `go-scryfall`'s rate limiter is a field
 on the `*scryfall.Client` struct; a limiter only paces requests made
@@ -645,7 +658,7 @@ through the *same* client instance. Constructing a new client per call
 (as an earlier version of this code did) defeats the limiter entirely —
 each fresh limiter starts unthrottled, so a tight loop of searches (the
 OCR-validation and backfill-validation loops, §5.5/§5.6, each issue one
-search per card) can burst well past 10 req/s and trigger Scryfall's
+search per card) can burst well past 2 req/s and trigger Scryfall's
 `rate_limited` error, which per Scryfall's own error text risks an IP-level
 network block if ignored.
 
@@ -767,7 +780,7 @@ this specific set's numbering.
 | `github.com/hashicorp/go-retryablehttp` | HTTP client with built-in retry/backoff, used for the Wizards product pages, the Scalefast catalog API, and OCR image downloads |
 | `github.com/lithammer/fuzzysearch` | Subsequence fuzzy string matching, used to match a cleaned product title against Scryfall edition titles |
 | `github.com/otiai10/gosseract/v2` | cgo bindings to Tesseract OCR |
-| `go.uber.org/ratelimit` | Leaky-bucket rate limiter, used to cap the shared Scryfall client at 8 req/s |
+| `go.uber.org/ratelimit` | Leaky-bucket rate limiter, used to cap the shared Scryfall client at 2 req/s with no burst slack |
 
 Transitive: `andres-erbsen/clock`, `andybalholm/cascadia` (goquery's CSS
 selector engine), `google/go-querystring`, `golang.org/x/net`,

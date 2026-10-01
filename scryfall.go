@@ -18,8 +18,9 @@ import (
 const scryfallURL = "https://scryfall.com/sets/sld"
 const titleClass = ".card-grid-header-content"
 
-// Scryfall requires staying below 10 requests per second, stay under with margin
-const scryfallReqPerSecond = 8
+// Scryfall allows 2 requests per second on /cards/search, which every search
+// uses; the only other call is the card-name catalog, once per run
+const scryfallReqPerSecond = 2
 
 // The rate limiter lives on the client, so a single shared client is needed
 // for it to actually pace requests across calls
@@ -33,10 +34,16 @@ func getScryfallClient() (*scryfall.Client, error) {
 	scryfallClientOnce.Do(func() {
 		scryfallClient, scryfallClientErr = scryfall.NewClient(
 			scryfall.WithUserAgent("sldownloader/1.0"),
-			scryfall.WithLimiter(ratelimit.New(scryfallReqPerSecond)),
+			scryfall.WithLimiter(newScryfallLimiter()),
 		)
 	})
 	return scryfallClient, scryfallClientErr
+}
+
+// Without slack, so that idle time (OCR, Wizards page fetches) never banks
+// a burst of back-to-back requests
+func newScryfallLimiter(opts ...ratelimit.Option) ratelimit.Limiter {
+	return ratelimit.New(scryfallReqPerSecond, append(opts, ratelimit.WithoutSlack)...)
 }
 
 type scryfallHeader struct {
