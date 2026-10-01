@@ -566,3 +566,26 @@ func TestScryfallLimiterNoBurst(t *testing.T) {
 		prev = next
 	}
 }
+
+func TestCrawlReportFailed(t *testing.T) {
+	tests := []struct {
+		name   string
+		report crawlReport
+		failed bool
+	}{
+		{"decklists written", crawlReport{products: 46, written: 36}, false},
+		{"partial failure", crawlReport{products: 46, written: 35, failures: []string{"x"}}, false},
+		// A new page that so far holds only a bundle is not a broken run
+		{"every product skipped", crawlReport{products: 1}, false},
+		{"every product failed", crawlReport{products: 2, failures: []string{"x", "y"}}, true},
+		{"skipped and failed, nothing written", crawlReport{products: 2, failures: []string{"x"}}, true},
+		{"first catalog fetch failed", crawlReport{failures: []string{"catalog page 21: boom"}}, true},
+		{"past the end of the catalog", crawlReport{}, true},
+	}
+
+	for _, tt := range tests {
+		if failed := tt.report.failed(); failed != tt.failed {
+			t.Errorf("%s: failed() = %v, want %v", tt.name, failed, tt.failed)
+		}
+	}
+}
