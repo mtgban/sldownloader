@@ -14,8 +14,6 @@ specific items where the behavior they describe is the direct cause.
 
 | # | Title | Why it matters |
 |---|---|---|
-| [003](003-scryfall-search-pagination.md) | Scryfall search results are not paginated | Silent truncation risk if ever queried against a large result set |
-| [006](006-structured-logging.md) | Logging is unlevelled `log.Println`/`Printf` calls throughout | No way to quiet routine output or get machine-parseable diagnostics |
 | [007](007-context-cancellation-on-signal.md) | `context.Background()` is never cancelled | A `-page` crawl can't be interrupted cleanly mid-request |
 
 ## Performance
@@ -23,7 +21,6 @@ specific items where the behavior they describe is the direct cause.
 | # | Title | Why it matters |
 |---|---|---|
 | [008](008-reuse-gosseract-client.md) | A new Tesseract client is constructed per OCR'd image | Unnecessary per-image setup cost on multi-card products |
-| [011](011-bounded-parallel-catalog-scraping.md) | Catalog-crawl mode scrapes products one at a time | A full catalog crawl is single-threaded network I/O bound |
 
 ## Maintainability
 
