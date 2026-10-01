@@ -10,12 +10,6 @@ Every item was found by reading the current implementation closely — cross
 references from [SPECIFICATIONS.md](../SPECIFICATIONS.md) point back to
 specific items where the behavior they describe is the direct cause.
 
-## Operational hardening
-
-| # | Title | Why it matters |
-|---|---|---|
-| [007](007-context-cancellation-on-signal.md) | `context.Background()` is never cancelled | A `-page` crawl can't be interrupted cleanly mid-request |
-
 ## Performance
 
 | # | Title | Why it matters |

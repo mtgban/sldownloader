@@ -10,11 +10,13 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode"
 
@@ -1037,7 +1039,11 @@ func run() int {
 	doOCROpt := flag.Bool("ocr", false, "Enable OCR to derive collector numbers")
 	flag.Parse()
 
-	ctx := context.Background()
+	// Ctrl-C or a cancelled CI job stops the run at the next product; a
+	// second signal kills it outright
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	context.AfterFunc(ctx, stop)
 
 	headers, err := loadScryfallHeaders(ctx)
 	if err != nil {
@@ -1056,6 +1062,10 @@ func run() int {
 	if args := flag.Args(); len(args) > 0 {
 		exitCode := 0
 		for i, arg := range args {
+			if ctx.Err() != nil {
+				log.Println("Interrupted")
+				return 1
+			}
 			cardSet, err := scrapeProduct(ctx, headers, names, arg, *doOCROpt)
 			if err != nil {
 				log.Println("page", i, "-", err)
@@ -1086,7 +1096,7 @@ func run() int {
 		report.written, len(report.failures), report.nextPage)
 	fmt.Printf("NEXT_PAGE=%d\n", report.nextPage)
 
-	if report.failed() {
+	if report.failed() || ctx.Err() != nil {
 		return 1
 	}
 	return 0
@@ -1167,7 +1177,12 @@ func crawl(ctx context.Context, headers []scryfallHeader, names *cardNames, star
 	var report crawlReport
 	lastPage := -1
 
+pages:
 	for page := startPage; ; page++ {
+		if err := ctx.Err(); err != nil {
+			report.fail(page, "interrupted: "+err.Error())
+			break
+		}
 		resp, err := getProducts(ctx, page*maxItemsInResp)
 		if err != nil {
 			report.fail(page, fmt.Sprintf("catalog page %d: %v", page, err))
@@ -1179,6 +1194,10 @@ func crawl(ctx context.Context, headers []scryfallHeader, names *cardNames, star
 		lastPage = page
 
 		for _, product := range resp.Products {
+			if err := ctx.Err(); err != nil {
+				report.fail(page, "interrupted: "+err.Error())
+				break pages
+			}
 			report.products++
 			releaseDate := product.ReleaseDate.Format("2006-01-02")
 

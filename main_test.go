@@ -1111,3 +1111,16 @@ func TestSearchCache(t *testing.T) {
 		t.Errorf("made %d requests, want 4", n)
 	}
 }
+
+func TestCrawlInterrupted(t *testing.T) {
+	// Cancelled before it starts, as by Ctrl-C: nothing is fetched, and
+	// the next crawl resumes on the page this one stopped at
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	report := crawl(ctx, nil, nil, 20, false)
+	want := []string{"interrupted: context canceled"}
+	if !slices.Equal(report.failures, want) || report.written != 0 || report.nextPage != 20 {
+		t.Errorf("crawl() = %+v, want failures %q, nothing written, next page 20", report, want)
+	}
+}
