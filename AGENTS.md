@@ -246,19 +246,17 @@ backoff at `RetryWaitMax`: Wizards answers some pages with a 503 and
 `Retry-After: 3600`, and the library's default backoff waits that out in
 full before each retry, turning one bad page into a four-hour stall.
 
-### 4.5 CSS selectors are brittle and scattered
+### 4.5 CSS selectors are tied to the sites' current markup
 
-`doc.Find(...)` calls use hardcoded CSS-ish selector strings tied to the
-current markup of `secretlair.wizards.com` and `scryfall.com/sets/sld`
-(e.g. `h1[class="product-title"]`, `div[class="force-overflow"] ul li`,
-`figure a`, `.card-grid-header-content`). These are not centralized or
-labeled — if either site changes its markup, the failure mode is silent
-(`len(cards) == 0` → `"no cards found"`, or headers silently coming back
-empty) rather than a clear error. See
-[todo/012-centralize-css-selectors.md](todo/012-centralize-css-selectors.md).
-If you're debugging a "no cards found" or "Scryfall page X products found"
-value that looks wrong, suspect a markup change before suspecting the parsing
-logic.
+Every selector the scraper uses is a named, commented constant: the
+Wizards product page's in main.go (`productTitleSelector`,
+`cardListSelector`, `productInfoSelector`, `galleryTitleSelector`,
+`galleryImageSelector`) and the scryfall.com set page's in scryfall.go
+(`editionHeaderSelector`). A redesign of either site breaks these first.
+It shows up as `FAILED ... no product title found` or `no cards found`
+across many products in the daily run's PR body or job summary, or as the
+run failing with `no Secret Lair editions found`. Suspect a markup change
+before suspecting the parsing logic, and fix the constant.
 
 ---
 
