@@ -21,9 +21,3 @@ specific items where the behavior they describe is the direct cause.
 | # | Title | Why it matters |
 |---|---|---|
 | [014](014-makefile-for-cgo-flags.md) | No wrapper for the macOS CGO flags | New contributors hit the same confusing build failure documented in AGENTS.md §2 |
-
-## Dependencies
-
-| # | Title | Why it matters |
-|---|---|---|
-| [020](020-dependency-updates.md) | Direct dependencies are behind, and nothing proposes updates | Updates arrive only as security fixes, on top of several unrelated releases |
