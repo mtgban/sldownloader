@@ -771,12 +771,10 @@ wrapping), never by the error text. `search` gets the shared client
 (§9.2) and hands off to `searchWithClient(ctx, client, query)`, which the
 tests drive against a local server.
 
-**Pagination is not followed** — only the first page of results (up to
-Scryfall's page size) is used. For a single Secret Lair edition query this
-has not been observed to matter in practice (editions are small), but it
-is a real, silent truncation risk if ever queried against something
-larger. See
-[todo/003-scryfall-search-pagination.md](todo/003-scryfall-search-pagination.md).
+**Pagination is not followed** — only the first page of results (175
+cards) is used. Every query this tool sends is one edition, or one card
+by name and number, so none comes close; a new caller that searches for
+something broader must follow `HasMore`/`NextPage` itself.
 
 ### 9.4 `searchURI(ctx, search, uri) ([]CardData, error)`
 
@@ -883,8 +881,8 @@ selector engine), `google/go-querystring`, `golang.org/x/net`,
 A consolidated pointer list; each item is detailed either inline above or
 in its own `todo/` file:
 
-- Scryfall search results are not paginated (§9.3) —
-  [todo/003](todo/003-scryfall-search-pagination.md)
+- Scryfall search results past the first page of 175 cards are ignored
+  (§9.3); no query this tool sends comes close.
 
 See [todo/README.md](todo/README.md) for the full backlog, including items
 that are process/tooling improvements rather than direct spec-level

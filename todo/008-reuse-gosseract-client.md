@@ -33,7 +33,6 @@ adds up across a full daily crawl.
   it as intended.
 - Be careful about `SetWhitelist` needing to be re-applied (or set once
   and left alone, since it never changes here) and about goroutine-safety
-  if this is ever combined with
-  [011](011-bounded-parallel-catalog-scraping.md) — `gosseract.Client` is
-  not documented as safe for concurrent use from multiple goroutines, so a
+  if the crawl ever becomes concurrent — `gosseract.Client` is not
+  documented as safe for concurrent use from multiple goroutines, so a
   shared client would need its own client-per-worker story in that case.
