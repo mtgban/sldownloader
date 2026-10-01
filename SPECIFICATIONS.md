@@ -94,7 +94,8 @@ crawl(pageOpt):
 
 print one "FAILED <failure>" line per failure    # see §4.2
 print "NEXT_PAGE=<nextPage>"
-exit 1 if no decklist was written, else 0        # see §7
+exit 1 if nothing was written and something failed,
+       or there were no products at all; else 0  # see §7
 ```
 
 The loop lives in `crawl`. Where the next run starts is decided by
@@ -159,9 +160,12 @@ started from.
 
 The exit code (§7) is `0` whenever at least one decklist was written, even
 if other products failed — the run is still useful, and its failures are
-listed for someone to look at. It is `1` only when nothing was written,
-which also stops the workflow before it opens a PR or moves
-`SLD_LAST_PAGE`.
+listed for someone to look at. It is also `0` when every product found was
+on the skip list: a page of nothing but bundles is not a broken run. It is
+`1` only when nothing was written because something went wrong (a product
+or catalog page failed), or when the catalog had no products at all from
+the start page on (a wrong `SLD_LAST_PAGE`). A `1` stops the workflow
+before it opens a PR or moves `SLD_LAST_PAGE`.
 
 ---
 
@@ -368,7 +372,9 @@ larger than a padded/longer one would lose to the longer string here.
 | Explicit-URL mode, **any** URL failed (all URLs are still attempted) | `1` |
 | Catalog-crawl mode, `-page` not given (stays at default `-1`) | `1` |
 | Catalog-crawl mode, at least one decklist written (failures listed as `FAILED` lines, §4.2) | `0` |
-| Catalog-crawl mode, no decklist written (every product failed or was skipped, the first catalog fetch failed, or the start page is past the end of the catalog) | `1` |
+| Catalog-crawl mode, no decklist written but nothing failed either, because every product found was on the skip list | `0` |
+| Catalog-crawl mode, no decklist written and something failed (every product that was not skipped failed, or the first catalog fetch failed) | `1` |
+| Catalog-crawl mode, no products at all from the start page on (start page past the end of the catalog) | `1` |
 
 ---
 

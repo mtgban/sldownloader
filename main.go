@@ -945,9 +945,7 @@ func run() int {
 		report.written, len(report.failures), report.nextPage)
 	fmt.Printf("NEXT_PAGE=%d\n", report.nextPage)
 
-	// A partial failure is listed for someone to look at, but a crawl that
-	// wrote nothing at all failed
-	if report.written == 0 {
+	if report.failed() {
 		return 1
 	}
 	return 0
@@ -978,6 +976,8 @@ func isSkipped(title string) bool {
 
 // The outcome of a catalog crawl, which the daily workflow reads off stdout
 type crawlReport struct {
+	// Products found in the catalog, including skipped ones
+	products int
 	// Decklists written, including those already upstream
 	written int
 	// Where the next crawl should start
@@ -996,6 +996,14 @@ func (r *crawlReport) fail(page int, failure string) {
 		r.firstFailedPage = page
 	}
 	r.failures = append(r.failures, failure)
+}
+
+// Whether the crawl produced nothing because something went wrong: every
+// product failed, the catalog could not be fetched, or it had no products
+// from the start page on. A partial failure is only listed for someone to
+// look at, and a page of nothing but skipped products is not a failure
+func (r *crawlReport) failed() bool {
+	return r.written == 0 && (len(r.failures) > 0 || r.products == 0)
 }
 
 // Where the next crawl should start: the last page with products, where new
@@ -1030,6 +1038,7 @@ func crawl(ctx context.Context, headers []scryfallHeader, names *cardNames, star
 		lastPage = page
 
 		for _, product := range resp.Products {
+			report.products++
 			releaseDate := product.ReleaseDate.Format("2006-01-02")
 
 			shouldSkip := false

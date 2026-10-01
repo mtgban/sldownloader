@@ -82,7 +82,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # Non-zero only when no decklist was written at all
+          # Non-zero only when nothing was produced because something went wrong
           exit "$status"
 
       - name: Stage new deck files
