@@ -1,9 +1,0 @@
-version: "2"
-
-linters:
-  # errcheck, govet, ineffassign, staticcheck, unused
-  default: standard
-  exclusions:
-    presets:
-      # Unchecked Close, print and os.Remove calls
-      - std-error-handling
