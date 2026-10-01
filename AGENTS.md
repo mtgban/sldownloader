@@ -267,8 +267,9 @@ code safely*:
 There is no persistence, cache, or database. Every run is stateless except
 for the `-page` counter, which in CI is round-tripped through a GitHub
 Actions repo variable (`SLD_LAST_PAGE`) — see workflow file §3 above and
-SPECIFICATIONS.md §6 for the exact contract of what the tool prints to
-communicate the next page number back to the workflow.
+SPECIFICATIONS.md §4.2 for the exact contract of what the tool prints
+(`FAILED` lines, `NEXT_PAGE=`) and its exit code. Changing that output
+means changing the workflow's parsing in the same PR.
 
 ---
 

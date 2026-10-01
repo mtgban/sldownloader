@@ -48,7 +48,7 @@ sldownloader [-page N] [-ocr] [URL ...]
 - **Catalog-crawl mode**: triggered when there are no positional arguments.
   Requires `-page >= 0`; if `-page` is left at its default (`-1`), the tool
   logs `"Missing starting -page argument"` and exits `1`. See §4 for the
-  crawl algorithm.
+  crawl algorithm and §4.2 for what it prints for the daily workflow.
 
 ---
 
@@ -76,22 +76,31 @@ full before each of its four retries.
 ## 4. Catalog-crawl algorithm (`run()`, no positional args)
 
 ```
-i := pageOpt
-loop:
-  resp, err := getProducts(i * 50)      # Scalefast API, 50 items/page
-  if err: log, BREAK (do not increment i first)
-  i++
-  if resp has zero products: BREAK
-  for each product in resp.Products:
-    if any of product.Descriptions[*].Title matches the skip list (§4.1):
-      print `"<title>",<releaseDate>` to stdout, skip this product
-      continue
-    link := "https://secretlair.wizards.com/us/product/" + product.ProductID
-    scrape & dump link (§5, §6) — on error, log and continue to next product
-                                    (does NOT abort the crawl or affect exit code)
-print "In the future you can start from page" (i - 2)  # see §4.2
-return 0   # ALWAYS 0 for this mode, see §7
+crawl(pageOpt):
+  for page := pageOpt; ; page++:
+    resp, err := getProducts(page * 50)   # Scalefast API, 50 items/page
+    if err: record a failure for "catalog page <page>", STOP
+    if resp has zero products: STOP
+    lastPage = page
+    for each product in resp.Products:
+      if any of product.Descriptions[*].Title matches the skip list (§4.1):
+        print `"<title>",<releaseDate>` to stdout, skip this product
+        continue
+      scrape & dump productURL + product.ProductID (§5, §6)
+        on error: record a failure for this product, continue
+        on success: count one decklist written
+  nextPage = lastPage (pageOpt if no page had products),
+             lowered to the page of the first failure
+
+print one "FAILED <failure>" line per failure    # see §4.2
+print "NEXT_PAGE=<nextPage>"
+exit 1 if no decklist was written, else 0        # see §7
 ```
+
+The loop lives in `crawl`. Where the next run starts is decided by
+`crawlReport.resumePage`, a pure function of the start page, the last page
+with products and the failures recorded, unit tested without the
+network.
 
 `product.ReleaseDate` (an RFC3339 timestamp in the Scalefast response) is
 formatted as `YYYY-MM-DD` and passed through as the `// DATE:` line in the
@@ -123,37 +132,36 @@ reference of what got excluded and why.
 
 ### 4.2 The resume-page contract with CI
 
-The final line printed to stdout in catalog-crawl mode,
-`"In the future you can start from page" (i - 2)`, is the **only**
-machine-readable signal this tool emits about crawl progress. The daily
-workflow ([.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml))
-captures the tool's stdout via process substitution, keeps the last line
-printed, and extracts the last whitespace-separated field with
-`awk '{print $NF}'` to get the page number for the *next* run's
-`SLD_LAST_PAGE` repository variable.
+After crawling, catalog-crawl mode prints to stdout, after the skip-list
+lines (§4.1):
 
-The `i - 2` (not `i - 1`) offset is deliberate: it resumes from the **last
-page that actually returned products**, not the first empty page past it,
-so that a product added to that page after this run (Scalefast sorts by
-`release_date`, and late-arriving items can land on an already-seen page)
-is picked up by the next run instead of being permanently missed. This
-means every run intentionally **re-scrapes** its last populated page; the
-workflow only opens a PR for genuinely new files (git untracked-file
-detection), so re-scraping an already-committed product is a no-op for the
-output, just wasted work.
+- `FAILED <failure>`, one line per product or catalog page that failed,
+  e.g. `FAILED Secret Lair x Lofi Girl: Beats to Cast To
+  (https://secretlair.wizards.com/us/product/1254382), page 21: GET ...
+  giving up after 5 attempt(s)` or `FAILED catalog page 22: <error>`.
+  Newlines in an error are flattened to spaces.
+- `NEXT_PAGE=<n>`, the page the next run should start from.
 
-**Caveat**: if the very first `getProducts` call in a run fails (network
-error, bad response), the loop breaks before `i` is ever incremented, so
-the printed resume page becomes `pageOpt - 2` — two pages *before* where
-the run started, not a safe no-op. There is no distinction in the printed
-output between "crawl completed normally" and "crawl aborted early due to
-an error"; both cases print the same message shape. See
-[todo/001-ci-exit-code-and-next-page-marker.md](todo/001-ci-exit-code-and-next-page-marker.md).
+The daily workflow ([.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml))
+tees stdout to a file, takes the last `NEXT_PAGE=` value as the next
+`SLD_LAST_PAGE`, and turns the `FAILED` lines into a list in the job
+summary and, when it opens one, in the upstream PR body.
 
-**Also note**: `run()` always returns exit code `0` for catalog-crawl mode,
-regardless of how many individual products failed to scrape or how early
-the crawl aborted (see §7) — the process exit code carries no information
-about crawl health; only the printed page number and the stderr log do.
+`NEXT_PAGE` is the **last page that returned products**, not the first
+empty page past it: new products land at the end of the catalog
+(Scalefast sorts by `release_date`), so that page is re-scraped next run
+to pick up anything added to it since. The workflow only opens a PR for
+genuinely new files (git untracked-file detection), so re-scraping an
+already-committed product changes nothing. If a product or catalog page
+failed on an earlier page, `NEXT_PAGE` is that page instead, so the next
+run retries it. A run that got no products at all prints the page it
+started from.
+
+The exit code (§7) is `0` whenever at least one decklist was written, even
+if other products failed — the run is still useful, and its failures are
+listed for someone to look at. It is `1` only when nothing was written,
+which also stops the workflow before it opens a PR or moves
+`SLD_LAST_PAGE`.
 
 ---
 
@@ -358,15 +366,8 @@ larger than a padded/longer one would lose to the longer string here.
 | Explicit-URL mode, **all** URLs scraped/dumped successfully | `0` |
 | Explicit-URL mode, **any** URL failed (all URLs are still attempted) | `1` |
 | Catalog-crawl mode, `-page` not given (stays at default `-1`) | `1` |
-| Catalog-crawl mode, ran to completion (any number of individual product failures) | `0` |
-| Catalog-crawl mode, aborted early by a `getProducts` fetch error | `0` — **same as successful completion** |
-
-The last row is the significant asymmetry to be aware of: catalog-crawl
-mode's exit code carries **no** information about whether the crawl
-completed normally, partially failed, or aborted immediately. Only the
-resume-page number printed to stdout (§4.2, itself ambiguous per its
-caveat) and the stderr log distinguish these cases. See
-[todo/001-ci-exit-code-and-next-page-marker.md](todo/001-ci-exit-code-and-next-page-marker.md).
+| Catalog-crawl mode, at least one decklist written (failures listed as `FAILED` lines, §4.2) | `0` |
+| Catalog-crawl mode, no decklist written (every product failed or was skipped, the first catalog fetch failed, or the start page is past the end of the catalog) | `1` |
 
 ---
 
@@ -779,8 +780,6 @@ selector engine), `google/go-querystring`, `golang.org/x/net`,
 A consolidated pointer list; each item is detailed either inline above or
 in its own `todo/` file:
 
-- Catalog-crawl mode's process exit code never reflects failure (§7) —
-  [todo/001](todo/001-ci-exit-code-and-next-page-marker.md)
 - No per-request timeout or status-code checking on the Wizards,
   Scalefast and scryfall.com fetches (§3) —
   [todo/002](todo/002-shared-http-client-with-timeout-and-status-checks.md)

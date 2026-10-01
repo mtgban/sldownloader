@@ -475,3 +475,43 @@ func TestDumpCardsFile(t *testing.T) {
 		t.Errorf("file contents = %q, want %q", data, want)
 	}
 }
+
+func TestCrawlReport(t *testing.T) {
+	tests := []struct {
+		name        string
+		start       int
+		lastPage    int   // -1: no page had products
+		failedPages []int // in crawl order
+		resumePage  int
+	}{
+		// Starts over from the last page with products
+		{"complete", 20, 21, nil, 21},
+		// A product that failed is retried by starting from its page
+		{"product fails on an earlier page", 20, 21, []int{20}, 20},
+		{"page 0 failed", 0, 3, []int{0, 2}, 0},
+		// The page that could not be fetched is reached again from the
+		// last page with products
+		{"catalog fetch fails midway", 20, 20, []int{21}, 20},
+		{"first catalog fetch fails", 20, -1, []int{20}, 20},
+		{"past the end of the catalog", 99, -1, nil, 99},
+	}
+
+	for _, tt := range tests {
+		var report crawlReport
+		for _, page := range tt.failedPages {
+			report.fail(page, "boom")
+		}
+		if page := report.resumePage(tt.start, tt.lastPage); page != tt.resumePage {
+			t.Errorf("%s: resumePage() = %d, want %d", tt.name, page, tt.resumePage)
+		}
+	}
+}
+
+func TestCrawlReportFail(t *testing.T) {
+	var report crawlReport
+	report.fail(21, "Secret Lair x Lofi Girl: Beats to Cast To (link), page 21: giving up\nafter 5 attempt(s)")
+	want := "Secret Lair x Lofi Girl: Beats to Cast To (link), page 21: giving up after 5 attempt(s)"
+	if len(report.failures) != 1 || report.failures[0] != want {
+		t.Errorf("failures = %q, want [%q]", report.failures, want)
+	}
+}
