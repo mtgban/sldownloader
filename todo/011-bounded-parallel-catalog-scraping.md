@@ -33,7 +33,7 @@ new products per day).
   §9.2 in SPECIFICATIONS.md) already serializes/paces Scryfall requests
   correctly across goroutines (the underlying `ratelimit.Limiter` is safe
   for concurrent use) — the main things concurrency would newly stress are
-  the Wizards/Scalefast fetches (see [002](002-shared-http-client-with-timeout-and-status-checks.md))
+  the Wizards/Scalefast fetches (all through `httpGet`'s one shared client)
   and, if combined with [008](008-reuse-gosseract-client.md), the
   gosseract client (which is **not** documented as safe for concurrent
   use — a shared client and concurrency are mutually exclusive unless this

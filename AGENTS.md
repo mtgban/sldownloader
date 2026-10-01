@@ -236,12 +236,13 @@ product only if the card it was resolving gets no number some other way
 (SPECIFICATIONS.md §5.7). A new `search` caller should return its error,
 or keep a `bad_request` in `rejected`, rather than log and carry on.
 
-The Wizards product-page and Scalefast catalog fetches have **no** rate
-limiting or shared-client story beyond `retryablehttp`'s default retry
-policy — see
-[todo/002-shared-http-client-with-timeout-and-status-checks.md](todo/002-shared-http-client-with-timeout-and-status-checks.md).
-Every `retryablehttp` client must come from `newRetryClient`, which caps
-the backoff at `RetryWaitMax`: Wizards answers some pages with a 503 and
+Everything outside the Scryfall API — Wizards product pages and gallery
+images, the Scalefast catalog, the scryfall.com set page — is fetched with
+`httpGet`, on one shared client with a 60s per-attempt timeout, an
+identifying User-Agent, and an error for any status outside 2xx. None of
+those fetches is rate limited by this tool. A new fetch must go through
+`httpGet` too. Its client comes from `newRetryClient`, which caps the
+backoff at `RetryWaitMax`: Wizards answers some pages with a 503 and
 `Retry-After: 3600`, and the library's default backoff waits that out in
 full before each retry, turning one bad page into a four-hour stall.
 
@@ -269,14 +270,13 @@ code safely*:
 - **Scalefast catalog API** (`getProducts` in main.go) — paginated JSON,
   50 items/page, used only by the `-page` crawl mode, not the explicit-URL
   mode. No auth, no documented rate limit; the code applies none beyond
-  `retryablehttp`'s built-in retry.
+  `httpGet`'s retries.
 - **`secretlair.wizards.com` product pages** — scraped as HTML via `goquery`.
   No API, no stability guarantee, no rate limiting applied by this tool.
 - **`scryfall.com/sets/sld`** — scraped as HTML (not the API) once per run,
   to get the list of `(edition title, search URI)` pairs used for the
   primary matching pass. This is a *second*, independent scrape target from
-  the product pages, using a different HTTP client (`go-cleanhttp`, not
-  `retryablehttp`).
+  the product pages, fetched through the same `httpGet`.
 - **Scryfall REST API** (`api.scryfall.com`, via `go-scryfall`) — used for
   the actual card search/validation calls. Rate-limited as described in §4.4.
   Every `search()` call filters out `sldbonus` promo cards and `★`-suffixed

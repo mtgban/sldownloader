@@ -56,20 +56,28 @@ sldownloader [-page N] [-ocr] [URL ...]
 
 | Source | Protocol | Used for | Client |
 |---|---|---|---|
-| Scalefast Store Search API | JSON, paginated, no auth (`scalefastURL` in main.go) | Enumerating Secret Lair catalog products in catalog-crawl mode | `retryablehttp` (fresh client per call, no shared rate limiting) |
-| `secretlair.wizards.com/.../product/<id>` | HTML | The actual card list, title, and image gallery for one product | `retryablehttp` (fresh client per call, default logger — i.e. **not** silenced, unlike the other two `retryablehttp` clients in the codebase) |
-| `scryfall.com/sets/sld` | HTML (scraped, **not** the JSON API) | The list of `(edition title, prebuilt search URI)` pairs used for the primary name-matching pass | `go-cleanhttp` default client, once per process run |
+| Scalefast Store Search API | JSON, paginated, no auth (`scalefastURL` in main.go) | Enumerating Secret Lair catalog products in catalog-crawl mode | `httpGet` (§3 below) |
+| `secretlair.wizards.com/.../product/<id>` | HTML | The actual card list, title, and image gallery for one product, and the gallery images OCR reads | `httpGet` |
+| `scryfall.com/sets/sld` | HTML (scraped, **not** the JSON API) | The list of `(edition title, prebuilt search URI)` pairs used for the primary name-matching pass | `httpGet`, once per process run |
 | `api.scryfall.com` | REST/JSON, via [go-scryfall](https://github.com/BlueMonday/go-scryfall) | Card search/validation: resolving an edition's card list, and validating OCR/backfill guesses; once per run, the full card-name catalog that protects real names from `cleanLine`'s cuts (§9.5) | Single shared, lazily-constructed client rate-limited to 2 req/s with no burst (`getScryfallClient`) — see §9.2 |
 
 None of these integrations use authentication. None but the Scryfall REST
 API client has explicit rate limiting applied by this tool.
 
-All three `retryablehttp` clients are built by `newRetryClient`, whose
-backoff (`cappedBackoff`) never waits longer than `RetryWaitMax` (30s by
-default) between attempts, even when the server's `Retry-After` asks for
-longer. Wizards answers some product pages with a 503 and
-`Retry-After: 3600`, which the library's `DefaultBackoff` would wait out in
-full before each of its four retries.
+Every fetch outside the Scryfall API goes through `httpGet`, which uses one
+shared `retryablehttp` client (`httpClient`, built by `newRetryClient`)
+for the whole run:
+- it sends `User-Agent: sldownloader/1.0 (+https://github.com/mtgban/sldownloader)`;
+- each attempt times out after 60s (`requestTimeout`), and
+  `retryablehttp` retries up to four times;
+- its backoff (`cappedBackoff`) never waits longer than `RetryWaitMax`
+  (30s) between attempts, even when the server's `Retry-After` asks for
+  longer — Wizards answers some product pages with a 503 and
+  `Retry-After: 3600`, which the library's `DefaultBackoff` would wait out
+  in full before each retry;
+- any status outside 2xx is an error (`GET <url>: 404 Not Found`), so an
+  error page is never parsed as a product page or catalog;
+- it logs every request and retry to stderr (`[DEBUG] GET ...`).
 
 ---
 
@@ -181,8 +189,8 @@ mode. `scrapeProduct` runs each step below through its own function:
 
 ### 5.1 Fetch and title extraction
 
-1. `GET` the product URL via a fresh `newRetryClient()` (default retry
-   policy with a capped backoff, §3; default — i.e. non-silenced — logger).
+1. `GET` the product URL via `httpGet` (§3); a status outside 2xx fails
+   the product with that status.
 2. Parse the HTML with `goquery`.
 3. Extract the title from `h1[class="product-title"]`.
 4. Run it through `cleanTitle` (§8) to get `(cardSet.Filename, cardSet.Title)`.
@@ -662,7 +670,8 @@ does not lose prior progress).
 
 ### 9.1 `loadScryfallHeaders(ctx) ([]scryfallHeader, error)`
 
-`GET https://scryfall.com/sets/sld`, parsed with `goquery`. For every
+`GET https://scryfall.com/sets/sld` (via `httpGet`, §3), parsed with
+`goquery` by `parseEditionHeaders`. For every
 element matching `.card-grid-header-content`: take its text, split on `•`
 and keep the first segment (drops the trailing card-count annotation
 Scryfall renders next to each edition name), trim whitespace → `Title`;
@@ -671,6 +680,10 @@ search URL with a `q=` query parameter already encoded for that edition).
 Order of the returned slice matches DOM order on the page (Scryfall lists
 Secret Lair editions in some site-defined order — not alphabetical, not
 guaranteed stable across Scryfall site changes).
+
+A page that yields no editions at all is an error, so the run exits `1`
+(§7) instead of sending every product to OCR: it means the page's markup
+changed.
 
 ### 9.2 `getScryfallClient()` and rate limiting
 
@@ -803,9 +816,7 @@ not in the catalog, so they get no protection.
 2. `SetWhitelist("0123456789 ™ ©")` — constrains Tesseract's recognition
    alphabet to digits, space, and the two terminator glyphs described
    below. Errors from this call are surfaced (not ignored).
-3. Download the image bytes (`getImageBytes`, via a fresh silenced
-   `retryablehttp` client, no shared rate limit or timeout beyond the
-   library default).
+3. Download the image bytes (`getImageBytes`, via `httpGet`, §3).
 4. `SetImageFromBytes(data)` — errors surfaced.
 5. `client.Text()` — run OCR, get the recognized text.
 6. Split on whitespace into `fields`, then call `extractNumber` twice in
@@ -851,8 +862,7 @@ this specific set's numbering.
 |---|---|
 | `github.com/BlueMonday/go-scryfall` | Scryfall REST API client (card search) |
 | `github.com/PuerkitoBio/goquery` | HTML parsing/querying (jQuery-style selectors) for both Wizards and Scryfall HTML scraping |
-| `github.com/hashicorp/go-cleanhttp` | Plain, non-pooled-transport-sharing HTTP client, used once for the Scryfall headers scrape |
-| `github.com/hashicorp/go-retryablehttp` | HTTP client with built-in retry/backoff, used for the Wizards product pages, the Scalefast catalog API, and OCR image downloads |
+| `github.com/hashicorp/go-retryablehttp` | HTTP client with built-in retry/backoff behind `httpGet`: the Wizards product pages and gallery images, the Scalefast catalog API, and the scryfall.com set page |
 | `github.com/lithammer/fuzzysearch` | Subsequence fuzzy string matching, used to match a cleaned product title against Scryfall edition titles |
 | `github.com/otiai10/gosseract/v2` | cgo bindings to Tesseract OCR |
 | `go.uber.org/ratelimit` | Leaky-bucket rate limiter, used to cap the shared Scryfall client at 2 req/s with no burst slack |
@@ -868,9 +878,6 @@ selector engine), `google/go-querystring`, `golang.org/x/net`,
 A consolidated pointer list; each item is detailed either inline above or
 in its own `todo/` file:
 
-- No per-request timeout or status-code checking on the Wizards,
-  Scalefast and scryfall.com fetches (§3) —
-  [todo/002](todo/002-shared-http-client-with-timeout-and-status-checks.md)
 - Scryfall search results are not paginated (§9.3) —
   [todo/003](todo/003-scryfall-search-pagination.md)
 
