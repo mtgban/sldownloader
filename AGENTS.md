@@ -109,8 +109,8 @@ the Scryfall rate limiter (2 searches/s, see §4.4).
 | File | Contents |
 |---|---|
 | [main.go](main.go) | Everything except the Scryfall client: CLI entrypoint (`run`/`main`), Scalefast catalog API client, product-page scraping (`scrapeProduct`), all the name/title cleaning heuristics (`cleanLine`, `cleanTitle`, `nameTags`), OCR (`getNumberFromLink`, `extractNumber`), collector-number backfill, and file output (`dumpCards`). |
-| [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the card-name catalog that protects real names from `cleanLine` (`loadCardNames`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchURI`). |
-| [main_test.go](main_test.go) | Table-driven tests for the pure string-processing functions (`cleanLine`, `cleanTitle`, `collectorNumberValue`, `normalizeCardName`, `canonicalName`, `matchCardNumbers`, `extractNumber`) and for `processLine`'s duplicate-merging behavior. `getNumberFromLink` is tested only on a blank image served by `httptest`. Nothing that reaches a live site is tested — `scrapeProduct`, `search`, `getProducts` have no test coverage (see [todo/004](todo/004-golden-file-regression-tests-for-scraping.md)). |
+| [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the card-name catalog that protects real names from `cleanLine` (`loadCardNames`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchWithClient`, `searchURI`), which tells "no such card" apart from a Scryfall failure (`isScryfallError`). |
+| [main_test.go](main_test.go) | Table-driven tests for the pure string-processing functions (`cleanLine`, `cleanTitle`, `collectorNumberValue`, `normalizeCardName`, `canonicalName`, `matchCardNumbers`, `extractNumber`) and for `processLine`'s duplicate-merging behavior. `searchWithClient`'s handling of Scryfall errors is tested against a local `httptest` server that replays Scryfall's error bodies, and `getNumberFromLink` only on a blank image served by `httptest`. Nothing that reaches a live site is tested — `scrapeProduct` and `getProducts` have no test coverage (see [todo/004](todo/004-golden-file-regression-tests-for-scraping.md)). |
 | [.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml) | The daily automation: build the tool, run it against a page range remembered in a GitHub Actions repo variable (`SLD_LAST_PAGE`), diff the output against a fork of `taw/magic-preconstructed-decks`, push a branch, open a PR upstream. Runs no tests itself. |
 | [.github/workflows/test.yml](.github/workflows/test.yml) | `go build`, `go vet` and `go test -race` on every pull request and every push to `master`. Kept separate from the daily sync workflow so that pull request code never runs in a job holding its tokens. |
 | [README.md](README.md) | User-facing install/usage instructions. |
@@ -225,6 +225,17 @@ The limiter also has **no burst slack** (`newScryfallLimiter`).
 OCR and Wizards page fetches and then lets up to 10 searches through back
 to back; `TestScryfallLimiterNoBurst` fails if that comes back. The budget
 is per IP, so crawls running at once from one machine share it (§6).
+
+A Scryfall error must never fall through to the code that handles an
+empty result: an empty validation result leaves the card unnumbered, so a
+throttled run would write `[SLD]` lines with no collector numbers and
+exit 0. `search` returns no cards and no error only for `not_found`; it
+waits out a `rate_limited` answer once and retries, and returns every
+other failure (SPECIFICATIONS.md §9.3). Each fails the product, except
+`bad_request`: a malformed query is deterministic, so it fails the
+product only if the card it was resolving gets no number some other way
+(SPECIFICATIONS.md §5.7). A new `search` caller should return its error,
+or keep a `bad_request` in `rejected`, rather than log and carry on.
 
 The Wizards product-page and Scalefast catalog fetches have **no** rate
 limiting or shared-client story beyond `retryablehttp`'s default retry
