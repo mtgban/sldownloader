@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # One grouped PR a week for each, tested by the Test workflow
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go_modules:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github_actions:
+        patterns: ["*"]

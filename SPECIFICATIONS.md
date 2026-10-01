@@ -883,9 +883,15 @@ this specific set's numbering.
 | `github.com/otiai10/gosseract/v2` | cgo bindings to Tesseract OCR |
 | `go.uber.org/ratelimit` | Leaky-bucket rate limiter, used to cap the shared Scryfall client at 2 req/s with no burst slack |
 
-Transitive: `andres-erbsen/clock`, `andybalholm/cascadia` (goquery's CSS
-selector engine), `google/go-querystring`, `golang.org/x/net`,
+Transitive: `benbjohnson/clock` (ratelimit's clock), `andybalholm/cascadia`
+(goquery's CSS selector engine), `google/go-querystring`,
+`hashicorp/go-cleanhttp` (retryablehttp's transport), `golang.org/x/net`,
 `golang.org/x/text`.
+
+Dependabot (`.github/dependabot.yml`) opens one grouped PR a week for Go
+module updates and one for GitHub Actions updates. The module keeps
+`go 1.25.0`; an update that needs a newer Go raises that line, which
+changes the toolchain CI installs (`go-version-file: go.mod`).
 
 ---
 
