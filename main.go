@@ -690,6 +690,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 	}
 
 	foundMatch := false
+	var headerErr error
 	cleanTitle := cardSet.Title
 	cleanTitle = strings.ReplaceAll(cleanTitle, " Foil Edition", "")
 	cleanTitle = strings.ReplaceAll(cleanTitle, " Raised", "")
@@ -703,9 +704,13 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 		}
 
 		results, err := searchURI(ctx, header.URI)
-		if err != nil {
-			log.Println(err.Error())
+		if isScryfallError(err, "bad_request") {
+			log.Println(err)
+			headerErr = err
 			continue
+		}
+		if err != nil {
+			return nil, err
 		}
 		if len(results) == 0 {
 			log.Println("empty result set from Scryfall, ignoring")
@@ -731,6 +736,15 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 
 	cardSet.Cards = cards
 
+	// Queries Scryfall rejected as malformed, by card; a rejected edition
+	// search counts against every card, since it would have numbered them all
+	rejected := make([]error, len(cards))
+	if !foundMatch {
+		for i := range rejected {
+			rejected[i] = headerErr
+		}
+	}
+
 	if doOCR {
 		// Sometimes pages have twice as many images because they are front and back,
 		// but we're interested in only the front to grab the number, so set a flag
@@ -749,6 +763,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 		}
 
 		// Find numbers by pulling images and OCR numbers out
+		var searchErr error
 		doc.Find(`figure a`).EachWithBreak(func(i int, s *goquery.Selection) bool {
 			if foldMode {
 				i = i / 2
@@ -777,8 +792,17 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 			}
 
 			res, err := search(ctx, fmt.Sprintf("%s cn:%s", cards[i].Name, num))
-			if err != nil || len(res) == 0 {
+			if isScryfallError(err, "bad_request") {
 				log.Println("validation failed:", err)
+				rejected[i] = err
+				return true
+			}
+			if err != nil {
+				searchErr = err
+				return false
+			}
+			if len(res) == 0 {
+				log.Printf("validation failed: no %s numbered %q", cards[i].Name, num)
 				return true
 			}
 
@@ -786,6 +810,9 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 			cards[i].Number = num
 			return true
 		})
+		if searchErr != nil {
+			return nil, searchErr
+		}
 	}
 
 	// Validate numbers and backfill if needed
@@ -821,8 +848,16 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 					num = fmt.Sprint(cn + j - pos)
 
 					res, err := search(ctx, fmt.Sprintf("%s cn:%s", cards[j].Name, num))
-					if err != nil || len(res) == 0 {
+					if isScryfallError(err, "bad_request") {
 						log.Println("validation failed:", err)
+						rejected[j] = err
+						continue
+					}
+					if err != nil {
+						return nil, err
+					}
+					if len(res) == 0 {
+						log.Printf("validation failed: no %s numbered %q", cards[j].Name, num)
 						continue
 					}
 					cards[j].Name = canonicalName(res, cards[j].Name)
@@ -834,7 +869,21 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 		}
 	}
 
+	if err := rejectedQueryErr(cards, rejected); err != nil {
+		return nil, err
+	}
 	return &cardSet, nil
+}
+
+// A query Scryfall rejected as malformed fails the product only when the
+// card it was resolving got no number some other way
+func rejectedQueryErr(cards []CardData, rejected []error) error {
+	for i, card := range cards {
+		if card.Number == "" && rejected[i] != nil {
+			return rejected[i]
+		}
+	}
+	return nil
 }
 
 // Render a decklist in the upstream text format

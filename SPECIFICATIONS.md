@@ -214,11 +214,14 @@ in scrape/DOM order:
    match.
 2. On a match, re-run the exact query embedded in that header's URI
    (`?q=...`) against the Scryfall REST API via `searchURI` → `search`
-   (§10.2). If this errs, or returns zero results, log and move on to the
-   **next** header candidate (this header is not treated as authoritative,
-   the loop continues) — matching does *not* stop at the first *title*
-   match, only at the first title match that also yields usable Scryfall
-   results.
+   (§9.3). If this returns zero results, log and move on to the **next**
+   header candidate (this header is not treated as authoritative, the
+   loop continues) — matching does *not* stop at the first *title* match,
+   only at the first title match that also yields usable Scryfall results.
+   If Scryfall rejects the query as malformed (`bad_request`), log it and
+   move on the same way, keeping the error for §5.7. Any other error
+   (§9.3) makes `scrapeProduct` return it, and the product fails: no file
+   is written.
 3. **If the result count doesn't equal the scraped card count**
    (`len(results) != len(cards)`): the scraped `cards` list is **discarded
    and replaced wholesale** by `results`, via `inheritFinish`. Every
@@ -286,9 +289,14 @@ edition match was found, §5.3).
      the OCR text), log and skip this image without a Scryfall search,
      leaving the card unnumbered for now.
    - **Validate** the candidate: issue a live Scryfall search for
-     `"<card name> cn:<candidate>"`. If it errs or returns zero results,
-     log `"validation failed"` and **do not** assign the number — this
-     card stays unnumbered and is eligible for the backfill pass (§5.6).
+     `"<card name> cn:<candidate>"`. If it returns zero results, log
+     `validation failed: no <name> numbered "<candidate>"` and **do not**
+     assign the number — this card stays unnumbered and is eligible for
+     the backfill pass (§5.6). If Scryfall rejects the query as
+     malformed (`bad_request`), log `"validation failed: <error>"`, keep
+     the error against this card (§5.7) and move on the same way. Any
+     other error (§9.3) stops the loop and `scrapeProduct` returns it: the
+     product fails rather than being written with the card unnumbered.
    - If valid: adopt the canonical Scryfall spelling of the name
      (`canonicalName`, §8.4) and assign the number.
 
@@ -311,8 +319,11 @@ whether OCR ran), if any card is still missing a `Number` after §5.3–§5.5:
    a simple contiguous integer sequence matching the (sorted) card order,
    anchored at the known card. Validate the guess with a live Scryfall
    search (`"<name> cn:<guess>"`) exactly as in §5.5; on success, adopt the
-   canonical name and the guessed number; on failure, log and leave that
-   card permanently unnumbered for this run.
+   canonical name and the guessed number; on zero results, log and leave
+   that card permanently unnumbered for this run; on `bad_request`, log
+   it, keep it against this card (§5.7) and leave the card unnumbered; on
+   any other error (§9.3), `scrapeProduct` returns it and the product
+   fails.
 
 **Note on "longest, not largest"**: the anchor-selection heuristic compares
 string *length*, not the parsed numeric value. Given the domain constraint
@@ -320,6 +331,27 @@ that SLD collector numbers are always 3+ digits (§11.1), this rarely
 diverges from "numerically largest" in practice, but the two are not the
 same rule — a hypothetical shorter number that happens to be numerically
 larger than a padded/longer one would lose to the longer string here.
+
+### 5.7 Rejected queries
+
+A `bad_request` is an error, not "no such card", but it does not fail
+the product on the spot: it is deterministic (retrying the same query
+tomorrow gets the same answer), and the card it was resolving may still
+get its number another way. So `scrapeProduct` keeps each one, by card,
+in `rejected`:
+- a rejected edition search (§5.3), when no header matched at all,
+  counts against **every** card, since that search would have numbered
+  them all; once any header matches, it is dropped;
+- a rejected OCR validation (§5.5) or backfill validation (§5.6) counts
+  against that card, replacing any edition-search error kept for it.
+
+After the backfill, `rejectedQueryErr(cards, rejected)` returns the error
+kept for the first card that is still unnumbered, and `scrapeProduct`
+returns it: the product fails instead of being written with that card as
+a bare `[SLD]` line. If every card the rejections touched was numbered
+another way, the product is written as usual; the rejections only show in
+the log. An unnumbered card with no rejection kept against it is written
+unnumbered (§6.1).
 
 ---
 
@@ -667,7 +699,7 @@ each fresh limiter starts unthrottled, so a tight loop of searches (the
 OCR-validation and backfill-validation loops, §5.5/§5.6, each issue one
 search per card) can burst well past 2 req/s and trigger Scryfall's
 `rate_limited` error, which per Scryfall's own error text risks an IP-level
-network block if ignored.
+network block if ignored. How `search` handles one is in §9.3.
 
 ### 9.3 `search(ctx, query) ([]CardData, error)`
 
@@ -688,6 +720,36 @@ Calls `Client.SearchCards` with `Unique: UniqueModePrints`,
 - `Token` is set from whether `TypeLine` contains `"Token"` (this field is
   populated but not currently read by anything downstream — flagged for
   awareness, not necessarily a defect).
+
+**Errors.** A query that matches no card is not an error: Scryfall
+answers it with HTTP 404 and the error code `not_found`, and `search`
+returns no cards and a nil error — the "no such card" that §5.3, §5.5
+and §5.6 each handle. Every other failure is returned as an error,
+wrapped with the query (`scryfall search "<query>": <code>: <details>`).
+Reading one as "no such card" would leave cards unnumbered (`[SLD]` with
+no collector number, §6.1) in a file the daily workflow commits upstream,
+so `scrapeProduct` fails the product on it instead (in a crawl, a
+`FAILED` line, §4.2), with one exception (`bad_request`, below). The
+errors are:
+- `rate_limited` (HTTP 429). Scryfall refuses every request for a while
+  after one; its error text says to try again after 60 seconds, and an
+  observed lockout lasted about that long, though requests kept arriving
+  throughout it. `search` logs `"Rate limited by Scryfall, retrying in
+  1m5s"`, waits `scryfallRateLimitWait` (65 s, or until the context
+  ends, whose error it then returns) and retries the query once. A
+  second `rate_limited` is returned as the error.
+- `bad_request`, a malformed query (unclosed parentheses, or no term
+  Scryfall understands). It is deterministic, so `scrapeProduct` fails
+  the product only if the card the query was resolving gets no number
+  some other way (§5.7).
+- Any other API error code, a response that is not a Scryfall error
+  object (an HTML outage page from a proxy), or a network error.
+
+The classification is `isScryfallError(err, code)`, which matches
+`go-scryfall`'s `*scryfall.Error` by its `Code` field (through any
+wrapping), never by the error text. `search` gets the shared client
+(§9.2) and hands off to `searchWithClient(ctx, client, query)`, which the
+tests drive against a local server.
 
 **Pagination is not followed** — only the first page of results (up to
 Scryfall's page size) is used. For a single Secret Lair edition query this

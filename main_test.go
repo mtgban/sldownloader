@@ -3,17 +3,21 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/draw"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"slices"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/BlueMonday/go-scryfall"
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/ratelimit"
 )
@@ -587,5 +591,166 @@ func TestCrawlReportFailed(t *testing.T) {
 		if failed := tt.report.failed(); failed != tt.failed {
 			t.Errorf("%s: failed() = %v, want %v", tt.name, failed, tt.failed)
 		}
+	}
+}
+
+func TestIsScryfallError(t *testing.T) {
+	notFound := &scryfall.Error{Status: http.StatusNotFound, Code: "not_found"}
+	rateLimited := &scryfall.Error{Status: http.StatusTooManyRequests, Code: "rate_limited"}
+	network := &url.Error{Op: "Get", URL: "https://api.scryfall.com/cards/search", Err: errors.New("connection reset by peer")}
+
+	tests := []struct {
+		name string
+		err  error
+		code string
+		want bool
+	}{
+		{"no error", nil, "not_found", false},
+		{"not found", notFound, "not_found", true},
+		{"wrapped not found", fmt.Errorf("scryfall search: %w", notFound), "not_found", true},
+		{"rate limited is not not found", rateLimited, "not_found", false},
+		{"rate limited", rateLimited, "rate_limited", true},
+		{"network error", network, "not_found", false},
+		{"code only in the text", errors.New("not_found: no such card"), "not_found", false},
+	}
+	for _, tt := range tests {
+		if got := isScryfallError(tt.err, tt.code); got != tt.want {
+			t.Errorf("%s: isScryfallError(%v, %q) = %v, want %v", tt.name, tt.err, tt.code, got, tt.want)
+		}
+	}
+}
+
+type scryfallReply struct {
+	status int
+	body   string
+}
+
+// Bodies as api.scryfall.com sends them, details shortened
+var (
+	replyCard        = scryfallReply{http.StatusOK, `{"object":"list","total_cards":1,"has_more":false,"data":[{"object":"card","name":"Sol Ring","collector_number":"2822","type_line":"Artifact"}]}`}
+	replyNotFound    = scryfallReply{http.StatusNotFound, `{"object":"error","code":"not_found","status":404,"details":"Your query didn’t match any cards."}`}
+	replyRateLimited = scryfallReply{http.StatusTooManyRequests, `{"object":"error","code":"rate_limited","status":429,"details":"You are being rate-limited, try again after 60 seconds."}`}
+	replyBadRequest  = scryfallReply{http.StatusBadRequest, `{"object":"error","code":"bad_request","status":400,"warnings":null,"details":"Your search contains unclosed parentheses."}`}
+	replyOutage      = scryfallReply{http.StatusBadGateway, `<html><body>502 Bad Gateway</body></html>`}
+)
+
+// A Scryfall client whose server answers each request with the next reply
+func scriptedScryfall(t *testing.T, replies ...scryfallReply) (*scryfall.Client, *atomic.Int32) {
+	t.Helper()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := int(requests.Add(1))
+		if r.URL.Path != "/cards/search" {
+			t.Errorf("request %d went to %s, want /cards/search", n, r.URL.Path)
+		}
+		if n > len(replies) {
+			t.Errorf("unexpected request %d, only %d scripted", n, len(replies))
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(replies[n-1].status)
+		fmt.Fprint(w, replies[n-1].body)
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := scryfall.NewClient(scryfall.WithBaseURL(server.URL + "/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return client, &requests
+}
+
+func TestSearchWithClient(t *testing.T) {
+	defer func(wait time.Duration) { scryfallRateLimitWait = wait }(scryfallRateLimitWait)
+	scryfallRateLimitWait = time.Millisecond
+
+	solRing := []CardData{{Name: "Sol Ring", Number: "2822"}}
+	tests := []struct {
+		name     string
+		replies  []scryfallReply
+		want     []CardData
+		wantCode string // the Scryfall error code expected, "-" for any other error
+	}{
+		{"match", []scryfallReply{replyCard}, solRing, ""},
+		{"no such card", []scryfallReply{replyNotFound}, nil, ""},
+		{"rate limited, then served", []scryfallReply{replyRateLimited, replyCard}, solRing, ""},
+		{"rate limited again after waiting", []scryfallReply{replyRateLimited, replyRateLimited}, nil, "rate_limited"},
+		{"rate limited, then no such card", []scryfallReply{replyRateLimited, replyNotFound}, nil, ""},
+		{"malformed query", []scryfallReply{replyBadRequest}, nil, "bad_request"},
+		{"outage page", []scryfallReply{replyOutage}, nil, "-"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, requests := scriptedScryfall(t, tt.replies...)
+			got, err := searchWithClient(context.Background(), client, "Sol Ring cn:2822")
+			switch {
+			case tt.wantCode == "" && err != nil:
+				t.Fatalf("unexpected error: %v", err)
+			case tt.wantCode == "-" && (err == nil || errors.As(err, new(*scryfall.Error))):
+				t.Fatalf("expected a non-API error, got %v", err)
+			case tt.wantCode != "" && tt.wantCode != "-" && !isScryfallError(err, tt.wantCode):
+				t.Fatalf("expected a %s error, got %v", tt.wantCode, err)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("got %+v, want %+v", got, tt.want)
+			}
+			if n := int(requests.Load()); n != len(tt.replies) {
+				t.Errorf("made %d requests, want %d", n, len(tt.replies))
+			}
+		})
+	}
+}
+
+func TestRejectedQueryErr(t *testing.T) {
+	malformed := &scryfall.Error{Status: http.StatusBadRequest, Code: "bad_request"}
+	otherMalformed := &scryfall.Error{Status: http.StatusBadRequest, Code: "bad_request", Details: "other"}
+
+	tests := []struct {
+		name     string
+		cards    []CardData
+		rejected []error
+		want     error
+	}{
+		{"unnumbered, nothing rejected", []CardData{{Name: "Sol Ring"}}, []error{nil}, nil},
+		{"rejected, numbered another way", []CardData{{Name: "Sol Ring", Number: "2822"}}, []error{malformed}, nil},
+		{"rejected, never numbered", []CardData{{Name: "Sol Ring"}}, []error{malformed}, malformed},
+		{
+			"only the unnumbered card counts",
+			[]CardData{{Name: "Sol Ring", Number: "2822"}, {Name: "Brainstorm"}, {Name: "Nyx Lotus"}},
+			[]error{malformed, nil, otherMalformed},
+			otherMalformed,
+		},
+	}
+	for _, tt := range tests {
+		if got := rejectedQueryErr(tt.cards, tt.rejected); got != tt.want {
+			t.Errorf("%s: rejectedQueryErr() = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestSearchWithClientNetworkError(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	server.Close()
+	client, err := scryfall.NewClient(scryfall.WithBaseURL(server.URL + "/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := searchWithClient(context.Background(), client, "Sol Ring"); err == nil {
+		t.Error("expected an error from an unreachable server")
+	}
+}
+
+func TestSearchWithClientCancelledWait(t *testing.T) {
+	defer func(wait time.Duration) { scryfallRateLimitWait = wait }(scryfallRateLimitWait)
+	scryfallRateLimitWait = time.Hour
+
+	client, requests := scriptedScryfall(t, replyRateLimited)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if _, err := searchWithClient(ctx, client, "Sol Ring"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected the wait to end with the context, got %v", err)
+	}
+	if n := requests.Load(); n != 1 {
+		t.Errorf("made %d requests, want 1", n)
 	}
 }
