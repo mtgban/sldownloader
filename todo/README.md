@@ -20,7 +20,6 @@ specific items where the behavior they describe is the direct cause.
 
 | # | Title | Why it matters |
 |---|---|---|
-| [001](001-ci-exit-code-and-next-page-marker.md) | Catalog-crawl exit code and resume-page signal are unreliable | A failed daily run can look identical to a successful one to the CI workflow |
 | [002](002-shared-http-client-with-timeout-and-status-checks.md) | No per-request timeout or status-code checks on the Wizards, Scalefast and scryfall.com fetches | One unanswered request can cost the whole daily run; a 404 is misreported as "no cards found" |
 | [003](003-scryfall-search-pagination.md) | Scryfall search results are not paginated | Silent truncation risk if ever queried against a large result set |
 | [006](006-structured-logging.md) | Logging is unlevelled `log.Println`/`Printf` calls throughout | No way to quiet routine output or get machine-parseable diagnostics |

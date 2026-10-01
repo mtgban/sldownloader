@@ -933,44 +933,105 @@ func run() int {
 		return 1
 	}
 
-	i := *pageOpt
-	for {
-		resp, err := getProducts(i * maxItemsInResp)
+	report := crawl(ctx, headers, names, *pageOpt, *doOCROpt)
+
+	for _, failure := range report.failures {
+		fmt.Println("FAILED", failure)
+	}
+	log.Printf("Wrote %d decklists, %d failed, in the future you can start from page %d",
+		report.written, len(report.failures), report.nextPage)
+	fmt.Printf("NEXT_PAGE=%d\n", report.nextPage)
+
+	// A partial failure is listed for someone to look at, but a crawl that
+	// wrote nothing at all failed
+	if report.written == 0 {
+		return 1
+	}
+	return 0
+}
+
+// Skip any bundle and special releases
+func isSkipped(title string) bool {
+	return strings.Contains(title, "Bundle") ||
+		strings.Contains(title, "BUNDLE") ||
+		strings.Contains(title, "Festival in a Box") ||
+		strings.Contains(title, "Transformers TCG") ||
+		strings.Contains(title, "DRAGON’S ENDGAME") ||
+		(strings.Contains(title, "Secret Lair") && strings.Contains(title, "Deck")) ||
+		strings.Contains(title, "They're Just Like Us but") ||
+		strings.Contains(title, "Heads I Win, Tails") ||
+		strings.Contains(title, "Deluxe Collection") ||
+		strings.Contains(title, "Heroes of the Borderlands") ||
+		strings.Contains(title, "Welcome to the Hellfire Club") ||
+		strings.Contains(title, "D&D Sapphire Anniversary") ||
+		strings.Contains(title, "Fan Merch") ||
+		strings.Contains(title, "30th Anniversary Edition") ||
+		strings.Contains(title, "Japanese") ||
+		strings.Contains(title, " JP") ||
+		strings.Contains(title, " SP") ||
+		strings.Contains(title, "Countdown Kit") ||
+		strings.Contains(title, "The Zeta Set")
+}
+
+// The outcome of a catalog crawl, which the daily workflow reads off stdout
+type crawlReport struct {
+	// Decklists written, including those already upstream
+	written int
+	// Where the next crawl should start
+	nextPage int
+	// One line per product, or catalog page, that failed
+	failures []string
+	// The page of the first failure, when there is one
+	firstFailedPage int
+}
+
+// Record a failure on page, logging it too
+func (r *crawlReport) fail(page int, failure string) {
+	failure = strings.ReplaceAll(failure, "\n", " ")
+	log.Println("page", page, "-", failure)
+	if len(r.failures) == 0 {
+		r.firstFailedPage = page
+	}
+	r.failures = append(r.failures, failure)
+}
+
+// Where the next crawl should start: the last page with products, where new
+// products land, or the first page where something failed, so it is
+// retried; where this crawl started when no page had products (lastPage -1)
+func (r *crawlReport) resumePage(startPage, lastPage int) int {
+	page := startPage
+	if lastPage >= 0 {
+		page = lastPage
+	}
+	if len(r.failures) > 0 && r.firstFailedPage < page {
+		page = r.firstFailedPage
+	}
+	return page
+}
+
+// Crawl the catalog from startPage up to the first empty page, writing out a
+// decklist for every product not on the skip list
+func crawl(ctx context.Context, headers []scryfallHeader, names *cardNames, startPage int, doOCR bool) crawlReport {
+	var report crawlReport
+	lastPage := -1
+
+	for page := startPage; ; page++ {
+		resp, err := getProducts(page * maxItemsInResp)
 		if err != nil {
-			log.Println(err)
+			report.fail(page, fmt.Sprintf("catalog page %d: %v", page, err))
 			break
 		}
-		i++
-
 		if len(resp.Products) == 0 {
 			break
 		}
+		lastPage = page
 
 		for _, product := range resp.Products {
 			releaseDate := product.ReleaseDate.Format("2006-01-02")
 
 			shouldSkip := false
 			for _, desc := range product.Descriptions {
-				// Skip any bundle and special releases
-				if strings.Contains(desc.Title, "Bundle") ||
-					strings.Contains(desc.Title, "BUNDLE") ||
-					strings.Contains(desc.Title, "Festival in a Box") ||
-					strings.Contains(desc.Title, "Transformers TCG") ||
-					strings.Contains(desc.Title, "DRAGON’S ENDGAME") ||
-					(strings.Contains(desc.Title, "Secret Lair") && strings.Contains(desc.Title, "Deck")) ||
-					strings.Contains(desc.Title, "They're Just Like Us but") ||
-					strings.Contains(desc.Title, "Heads I Win, Tails") ||
-					strings.Contains(desc.Title, "Deluxe Collection") ||
-					strings.Contains(desc.Title, "Heroes of the Borderlands") ||
-					strings.Contains(desc.Title, "Welcome to the Hellfire Club") ||
-					strings.Contains(desc.Title, "D&D Sapphire Anniversary") ||
-					strings.Contains(desc.Title, "Fan Merch") ||
-					strings.Contains(desc.Title, "30th Anniversary Edition") ||
-					strings.Contains(desc.Title, "Japanese") ||
-					strings.Contains(desc.Title, " JP") ||
-					strings.Contains(desc.Title, " SP") ||
-					strings.Contains(desc.Title, "Countdown Kit") ||
-					strings.Contains(desc.Title, "The Zeta Set") {
+				if isSkipped(desc.Title) {
 					shouldSkip = true
 					fmt.Printf("\"%s\",%s\n", desc.Title, releaseDate)
 					break
@@ -980,24 +1041,21 @@ func run() int {
 				continue
 			}
 
-			link := "https://secretlair.wizards.com/us/product/" + product.ProductID
-			cardSet, err := scrapeProduct(ctx, headers, names, link, *doOCROpt)
+			link := productURL + product.ProductID
+			cardSet, err := scrapeProduct(ctx, headers, names, link, doOCR)
+			if err == nil {
+				err = dumpCards(cardSet, link, releaseDate, cardSet.Filename)
+			}
 			if err != nil {
-				log.Println("page", i-1, "-", err)
+				report.fail(page, fmt.Sprintf("%s (%s), page %d: %v", product.title(), link, page, err))
 				continue
 			}
-
-			err = dumpCards(cardSet, link, releaseDate, cardSet.Filename)
-			if err != nil {
-				log.Println(err)
-				continue
-			}
+			report.written++
 		}
 	}
 
-	fmt.Fprintln(os.Stdout, "In the future you can start from page", i-2)
-
-	return 0
+	report.nextPage = report.resumePage(startPage, lastPage)
+	return report
 }
 
 func main() {
@@ -1005,21 +1063,31 @@ func main() {
 }
 
 const (
+	productURL     = "https://secretlair.wizards.com/us/product/"
 	maxItemsInResp = 50
 	scalefastURL   = "https://storesearch.eu.scalefast.com/StoreSearch?userID=10751401&locale=en_US&currency=USD&crit=ALL&sort=release_date&count=50&env=prod&offset="
 )
 
 type ScalefastResponse struct {
-	Count    int `json:"count"`
-	Total    int `json:"total"`
-	Products []struct {
-		ProductID    string    `json:"productID"`
-		ReleaseDate  time.Time `json:"release_date"`
-		Descriptions []struct {
-			Lang  string `json:"lang"`
-			Title string `json:"title"`
-		} `json:"descriptions"`
-	} `json:"products"`
+	Count    int                `json:"count"`
+	Total    int                `json:"total"`
+	Products []ScalefastProduct `json:"products"`
+}
+
+type ScalefastProduct struct {
+	ProductID    string    `json:"productID"`
+	ReleaseDate  time.Time `json:"release_date"`
+	Descriptions []struct {
+		Lang  string `json:"lang"`
+		Title string `json:"title"`
+	} `json:"descriptions"`
+}
+
+func (p ScalefastProduct) title() string {
+	if len(p.Descriptions) > 0 {
+		return p.Descriptions[0].Title
+	}
+	return p.ProductID
 }
 
 func getProducts(offset int) (*ScalefastResponse, error) {
