@@ -277,9 +277,10 @@ edition match was found, §5.3).
    - Resolve a relative `href` (starting with `/`) against
      `https://secretlair.wizards.com`.
    - Download the image and run Tesseract OCR on it via
-     `getNumberFromLink` → `extractNumber` (§11) to get a candidate number
-     string. On any error (download or gosseract failure), log and skip
-     this image (leaving the card unnumbered for now).
+     `getNumberFromLink` → `extractNumber` (§10) to get a candidate number
+     string. On any error (download, gosseract failure, or no number in
+     the OCR text), log and skip this image without a Scryfall search,
+     leaving the card unnumbered for now.
    - **Validate** the candidate: issue a live Scryfall search for
      `"<card name> cn:<candidate>"`. If it errs or returns zero results,
      log `"validation failed"` and **do not** assign the number — this
@@ -739,6 +740,9 @@ not in the catalog, so they get no protection.
 6. Split on whitespace into `fields`, then call `extractNumber` twice in
    sequence (§10.2): once with `minLen = 3`, and — only if that returns an
    empty string — again with `minLen = 2`.
+7. If both passes come back empty, return the error `no collector number
+   found`, never an empty number: the caller would otherwise validate it
+   as `"<card name> cn:"`, a search Scryfall always answers `not_found`.
 
 ### 10.2 `extractNumber(fields []string, minLen int) string`
 

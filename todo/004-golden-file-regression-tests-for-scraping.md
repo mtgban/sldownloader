@@ -9,8 +9,8 @@
 (`cleanLine`, `cleanTitle`, `collectorNumberValue`, `normalizeCardName`,
 `canonicalName`, `matchCardNumbers`, `extractNumber`), but nothing that
 touches the network — `scrapeProduct`, `search`, `searchURI`,
-`loadScryfallHeaders`, `getProducts`, `getNumberFromLink` — has any test
-coverage at all. The established practice for validating a fix in this
+`loadScryfallHeaders`, `getProducts` — has any test coverage at all, and
+`getNumberFromLink` is tested only on a blank image. The established practice for validating a fix in this
 area (documented in [AGENTS.md](../AGENTS.md) §6) is a **live** run against
 the actual product URL that exposed the bug, plus a manual regression check
 against a couple of neighboring drops.

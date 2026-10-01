@@ -1,8 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"image"
+	"image/draw"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -425,6 +429,29 @@ func TestRetryClientCapsRetryAfter(t *testing.T) {
 
 	if n := attempts.Load(); n != 2 {
 		t.Errorf("expected 2 attempts, got %d", n)
+	}
+}
+
+// An image with no digits must not come back as an empty number, which
+// would be sent to Scryfall as "<name> cn:"
+func TestGetNumberFromLinkBlankImage(t *testing.T) {
+	img := image.NewGray(image.Rect(0, 0, 300, 100))
+	draw.Draw(img, img.Bounds(), image.White, image.Point{}, draw.Src)
+	var data bytes.Buffer
+	if err := png.Encode(&data, img); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		if _, err := w.Write(data.Bytes()); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer server.Close()
+
+	num, err := getNumberFromLink(server.URL)
+	if err == nil {
+		t.Errorf("expected an error for an image with no number, got %q", num)
 	}
 }
 

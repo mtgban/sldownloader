@@ -95,6 +95,9 @@ func getNumberFromLink(link string) (string, error) {
 	if num == "" {
 		num = extractNumber(fields, 2)
 	}
+	if num == "" {
+		return "", errors.New("no collector number found")
+	}
 
 	return num, nil
 }
