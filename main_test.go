@@ -13,11 +13,13 @@ import (
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/BlueMonday/go-scryfall"
+	"github.com/PuerkitoBio/goquery"
 	"github.com/hashicorp/go-retryablehttp"
 	"go.uber.org/ratelimit"
 )
@@ -752,5 +754,275 @@ func TestSearchWithClientCancelledWait(t *testing.T) {
 	}
 	if n := requests.Load(); n != 1 {
 		t.Errorf("made %d requests, want 1", n)
+	}
+}
+
+// A product page reduced to the parts the scraper reads
+const testProductPage = `<html><body>
+<h1 class="product-title">Secret Lair x Lofi Girl: Beats to Cast To</h1>
+<div class="force-overflow"><ul>
+<li>1x Felidar Guardian</li>
+<li>2x Galaxy Foil Sol Ring</li>
+<li>Includes the following</li>
+</ul></div>
+</body></html>`
+
+func testDocument(t *testing.T, html string) *goquery.Document {
+	t.Helper()
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader(html))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return doc
+}
+
+func TestParseCardList(t *testing.T) {
+	tests := []struct {
+		name  string
+		html  string
+		cards []CardData
+	}{
+		{
+			// A line that is not a card is skipped
+			name: "bullet points",
+			html: testProductPage,
+			cards: []CardData{
+				{Name: "Felidar Guardian", Count: 1},
+				{Name: "Sol Ring", Count: 2, Foil: true},
+			},
+		},
+		{
+			name: "product information paragraph when there are no bullet points",
+			html: `<div id="collapse2"><div class="force-overflow">
+<p class="product-information">1x Counterspell<br>1x Phyrexian Altar<br></p>
+</div></div>`,
+			cards: []CardData{
+				{Name: "Counterspell", Count: 1},
+				{Name: "Phyrexian Altar", Count: 1},
+			},
+		},
+		{
+			name: "no card list at all",
+			html: `<h1 class="product-title">Secret Lair x MSCHF: The Zeta Set</h1><p>3 common cards</p>`,
+		},
+	}
+
+	for _, tt := range tests {
+		cards := parseCardList(testDocument(t, tt.html), testNames)
+		if !slices.Equal(cards, tt.cards) {
+			t.Errorf("%s: parseCardList() = %+v, want %+v", tt.name, cards, tt.cards)
+		}
+	}
+}
+
+func TestGalleryFoldMode(t *testing.T) {
+	tests := []struct {
+		title     string
+		cardCount int
+		fold      bool
+	}{
+		// Front and back of every card
+		{"Gallery (10)", 5, true},
+		{"Gallery (10)", 10, false},
+		{"Gallery", 5, false},
+	}
+
+	for _, tt := range tests {
+		doc := testDocument(t, `<h2 class="pdp_title">`+tt.title+`</h2>`)
+		if fold := galleryFoldMode(doc, tt.cardCount); fold != tt.fold {
+			t.Errorf("galleryFoldMode(%q, %d) = %v, want %v", tt.title, tt.cardCount, fold, tt.fold)
+		}
+	}
+}
+
+// Canned Scryfall results by query, or an error for the queries in errs
+type fakeSearch struct {
+	results map[string][]CardData
+	errs    map[string]error
+	queries []string
+}
+
+func (f *fakeSearch) search(_ context.Context, query string) ([]CardData, error) {
+	f.queries = append(f.queries, query)
+	if err := f.errs[query]; err != nil {
+		return nil, err
+	}
+	return slices.Clone(f.results[query]), nil
+}
+
+func TestMatchEdition(t *testing.T) {
+	headers := []scryfallHeader{
+		{Title: "Pixel Pals", URI: "https://scryfall.com/search?q=pixel"},
+		{Title: "Lofi Girl: Beats to Cast To", URI: "https://scryfall.com/search?q=lofi"},
+		{Title: "Lofi Girl: Beats to Cast To", URI: "https://scryfall.com/search?q=lofi2"},
+	}
+	edition := []CardData{
+		{Name: "Felidar Guardian", Number: "2821"},
+		{Name: "Sol Ring", Number: "2822"},
+	}
+	scraped := func() []CardData {
+		return []CardData{{Name: "Sol Ring", Count: 1, Foil: true}, {Name: "Felidar Guardian", Count: 1, Foil: true}}
+	}
+	badRequest := &scryfall.Error{Status: http.StatusBadRequest, Code: "bad_request"}
+	serverErr := errors.New("scryfall search: 500")
+
+	tests := []struct {
+		name     string
+		title    string
+		search   fakeSearch
+		cards    []CardData
+		matched  bool
+		rejected error
+		err      error
+	}{
+		{
+			// The Foil Edition suffix is dropped for matching, so a
+			// shortened title still fuzzy-matches the edition; the cards
+			// are numbered by name
+			name:    "same count, aligned by name",
+			title:   "Lofi Girl Foil Edition",
+			search:  fakeSearch{results: map[string][]CardData{"lofi": edition}},
+			cards:   []CardData{{Name: "Sol Ring", Number: "2822", Count: 1, Foil: true}, {Name: "Felidar Guardian", Number: "2821", Count: 1, Foil: true}},
+			matched: true,
+		},
+		{
+			name:  "different count, Scryfall's list wins",
+			title: "Lofi Girl: Beats to Cast To",
+			search: fakeSearch{results: map[string][]CardData{"lofi": append(slices.Clone(edition),
+				CardData{Name: "Careful Study", Number: "2823"})}},
+			cards: []CardData{
+				{Name: "Felidar Guardian", Number: "2821", Count: 1, Foil: true},
+				{Name: "Sol Ring", Number: "2822", Count: 1, Foil: true},
+				{Name: "Careful Study", Number: "2823", Count: 1, Foil: true},
+			},
+			matched: true,
+		},
+		{
+			name:    "an empty search moves on to the next matching edition",
+			title:   "Lofi Girl: Beats to Cast To",
+			search:  fakeSearch{results: map[string][]CardData{"lofi2": edition}},
+			cards:   []CardData{{Name: "Sol Ring", Number: "2822", Count: 1, Foil: true}, {Name: "Felidar Guardian", Number: "2821", Count: 1, Foil: true}},
+			matched: true,
+		},
+		{
+			name:     "a malformed search is kept, and the next edition is tried",
+			title:    "Lofi Girl: Beats to Cast To",
+			search:   fakeSearch{errs: map[string]error{"lofi": badRequest}},
+			cards:    scraped(),
+			rejected: badRequest,
+		},
+		{
+			name:   "any other Scryfall error fails the product",
+			title:  "Lofi Girl: Beats to Cast To",
+			search: fakeSearch{errs: map[string]error{"lofi": serverErr}},
+			cards:  scraped(),
+			err:    serverErr,
+		},
+		{
+			name:  "no edition matches",
+			title: "Secret Lair x Something Else Entirely",
+			cards: scraped(),
+		},
+	}
+
+	for _, tt := range tests {
+		match, err := matchEdition(context.Background(), tt.search.search, headers, tt.title, scraped())
+		if !errors.Is(err, tt.err) {
+			t.Errorf("%s: error %v, want %v", tt.name, err, tt.err)
+			continue
+		}
+		if match.matched != tt.matched || match.rejected != tt.rejected || !slices.Equal(match.cards, tt.cards) {
+			t.Errorf("%s: matchEdition() = %+v, want cards %+v, matched %v, rejected %v",
+				tt.name, match, tt.cards, tt.matched, tt.rejected)
+		}
+	}
+}
+
+func TestBackfillNumbers(t *testing.T) {
+	cards := []CardData{
+		{Name: "Sisay, Weatherlight Captain", Number: "2778"},
+		{Name: "Silence"},
+		{Name: "Emiel the Blessed", Number: "2780"},
+		{Name: "Hajar Loyal Bodyguard"},
+		{Name: "Kutzil, Malamet Exemplar"},
+		{Name: "Sol Ring"},
+	}
+	badRequest := &scryfall.Error{Status: http.StatusBadRequest, Code: "bad_request"}
+	search := fakeSearch{
+		results: map[string][]CardData{
+			"Silence cn:2779": {{Name: "Silence", Number: "2779"}},
+			// Scryfall's spelling is adopted along with the number
+			"Hajar Loyal Bodyguard cn:2781": {{Name: "Hajar, Loyal Bodyguard", Number: "2781"}},
+		},
+		errs: map[string]error{"Sol Ring cn:2783": badRequest},
+	}
+	rejected := make([]error, len(cards))
+
+	// Numbers run on from the longest one found, Sisay's, in card order;
+	// Kutzil's guess is not validated and stays unnumbered
+	if err := backfillNumbers(context.Background(), search.search, cards, rejected); err != nil {
+		t.Fatal(err)
+	}
+	want := []CardData{
+		{Name: "Sisay, Weatherlight Captain", Number: "2778"},
+		{Name: "Silence", Number: "2779"},
+		{Name: "Emiel the Blessed", Number: "2780"},
+		{Name: "Hajar, Loyal Bodyguard", Number: "2781"},
+		{Name: "Kutzil, Malamet Exemplar"},
+		{Name: "Sol Ring"},
+	}
+	if !slices.Equal(cards, want) {
+		t.Errorf("backfillNumbers() = %+v, want %+v", cards, want)
+	}
+	if rejected[5] != badRequest || slices.ContainsFunc(rejected[:5], func(err error) bool { return err != nil }) {
+		t.Errorf("rejected = %v, want only Sol Ring's malformed query", rejected)
+	}
+
+	// Any other Scryfall error fails the product
+	serverErr := errors.New("scryfall search: 500")
+	cards = []CardData{{Name: "Silence", Number: "2779"}, {Name: "Sol Ring"}}
+	search = fakeSearch{errs: map[string]error{"Sol Ring cn:2780": serverErr}}
+	if err := backfillNumbers(context.Background(), search.search, cards, make([]error, 2)); !errors.Is(err, serverErr) {
+		t.Errorf("expected the Scryfall error, got %v", err)
+	}
+
+	// With no number to anchor a guess on, nothing is searched
+	cards = []CardData{{Name: "Silence"}, {Name: "Sol Ring"}}
+	search = fakeSearch{}
+	if err := backfillNumbers(context.Background(), search.search, cards, make([]error, 2)); err != nil || len(search.queries) != 0 {
+		t.Errorf("expected no searches and no error, got %q, %v", search.queries, err)
+	}
+}
+
+func TestScrapeProduct(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/us/product/1254382":
+			fmt.Fprint(w, testProductPage)
+		default:
+			fmt.Fprint(w, `<h1 class="product-title">Secret Lair x MSCHF: The Zeta Set</h1>`)
+		}
+	}))
+	defer server.Close()
+
+	// No editions and no gallery: nothing reaches Scryfall
+	cardSet, err := scrapeProduct(context.Background(), nil, testNames, server.URL+"/us/product/1254382", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := CardSet{
+		Title:    "Lofi Girl: Beats to Cast To",
+		Filename: "Lofi Girl- Beats to Cast To",
+		Cards: []CardData{
+			{Name: "Felidar Guardian", Count: 1},
+			{Name: "Sol Ring", Count: 2, Foil: true},
+		},
+	}
+	if cardSet.Title != want.Title || cardSet.Filename != want.Filename || !slices.Equal(cardSet.Cards, want.Cards) {
+		t.Errorf("scrapeProduct() = %+v, want %+v", *cardSet, want)
+	}
+
+	if _, err := scrapeProduct(context.Background(), nil, testNames, server.URL+"/us/product/1254424", false); err == nil || err.Error() != "no cards found" {
+		t.Errorf("expected no cards found, got %v", err)
 	}
 }

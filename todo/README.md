@@ -10,12 +10,6 @@ Every item was found by reading the current implementation closely — cross
 references from [SPECIFICATIONS.md](../SPECIFICATIONS.md) point back to
 specific items where the behavior they describe is the direct cause.
 
-## Testing & CI
-
-| # | Title | Why it matters |
-|---|---|---|
-| [004](004-golden-file-regression-tests-for-scraping.md) | No offline regression tests for the scraping/matching pipeline | Every fix today needs a live network reproduction; nothing guards against silent markup-change regressions |
-
 ## Operational hardening
 
 | # | Title | Why it matters |
