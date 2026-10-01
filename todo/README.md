@@ -10,12 +10,6 @@ Every item was found by reading the current implementation closely — cross
 references from [SPECIFICATIONS.md](../SPECIFICATIONS.md) point back to
 specific items where the behavior they describe is the direct cause.
 
-## Performance
-
-| # | Title | Why it matters |
-|---|---|---|
-| [008](008-reuse-gosseract-client.md) | A new Tesseract client is constructed per OCR'd image | Unnecessary per-image setup cost on multi-card products |
-
 ## Maintainability
 
 | # | Title | Why it matters |

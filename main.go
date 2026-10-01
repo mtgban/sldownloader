@@ -97,16 +97,21 @@ func extractNumber(fields []string, minLen int) string {
 	return ""
 }
 
-func getNumberFromLink(ctx context.Context, link string) (string, error) {
+// A Tesseract client for reading collector numbers, to reuse for every
+// image of a product: its engine and language data load on the first image
+// only. The caller closes it
+func newOCRClient() (*gosseract.Client, error) {
 	client := gosseract.NewClient()
-	defer client.Close()
 
 	// We only want to find numbers and special terminator characters
-	err := client.SetWhitelist("0123456789 ™ ©")
-	if err != nil {
-		return "", err
+	if err := client.SetWhitelist("0123456789 ™ ©"); err != nil {
+		client.Close()
+		return nil, err
 	}
+	return client, nil
+}
 
+func getNumberFromLink(ctx context.Context, client *gosseract.Client, link string) (string, error) {
 	data, err := getImageBytes(ctx, link)
 	if err != nil {
 		return "", err
@@ -858,6 +863,12 @@ func ocrNumbers(ctx context.Context, search searchFunc, doc *goquery.Document, c
 	// that makes the later chunk skip duplicated images
 	foldMode := galleryFoldMode(doc, len(cards))
 
+	client, err := newOCRClient()
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
 	// Find numbers by pulling images and OCR numbers out
 	var searchErr error
 	doc.Find(galleryImageSelector).EachWithBreak(func(i int, s *goquery.Selection) bool {
@@ -881,7 +892,7 @@ func ocrNumbers(ctx context.Context, search searchFunc, doc *goquery.Document, c
 			imgLink = "https://secretlair.wizards.com" + imgLink
 		}
 
-		num, err := getNumberFromLink(ctx, imgLink)
+		num, err := getNumberFromLink(ctx, client, imgLink)
 		if err != nil {
 			log.Println(imgLink, err)
 			return true

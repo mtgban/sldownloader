@@ -456,9 +456,18 @@ func TestGetNumberFromLinkBlankImage(t *testing.T) {
 	}))
 	defer server.Close()
 
-	num, err := getNumberFromLink(context.Background(), server.URL)
-	if err == nil {
-		t.Errorf("expected an error for an image with no number, got %q", num)
+	client, err := newOCRClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	// One client reads every image of a product
+	for range 2 {
+		num, err := getNumberFromLink(context.Background(), client, server.URL)
+		if err == nil {
+			t.Errorf("expected an error for an image with no number, got %q", num)
+		}
 	}
 }
 

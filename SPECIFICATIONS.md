@@ -823,22 +823,22 @@ not in the catalog, so they get no protection.
 
 ## 10. OCR (`getNumberFromLink`, `extractNumber`)
 
-### 10.1 `getNumberFromLink(link string) (string, error)`
+### 10.1 `getNumberFromLink(ctx, client, link) (string, error)`
 
-1. Construct a `gosseract.Client` (one per call — **not** reused across
-   calls, unlike the Scryfall client; see
-   [todo/008-reuse-gosseract-client.md](todo/008-reuse-gosseract-client.md)
-   for the performance implication).
-2. `SetWhitelist("0123456789 ™ ©")` — constrains Tesseract's recognition
-   alphabet to digits, space, and the two terminator glyphs described
-   below. Errors from this call are surfaced (not ignored).
-3. Download the image bytes (`getImageBytes`, via `httpGet`, §3).
-4. `SetImageFromBytes(data)` — errors surfaced.
-5. `client.Text()` — run OCR, get the recognized text.
-6. Split on whitespace into `fields`, then call `extractNumber` twice in
+`ocrNumbers` (§5.5) builds one Tesseract client per product with
+`newOCRClient` and passes it to every image: Tesseract loads its engine
+and language data on the first image only. The client's whitelist,
+`"0123456789 ™ ©"`, constrains recognition to digits, space, and the two
+terminator glyphs described below. A client is not safe for concurrent
+use. For each image:
+
+1. Download the image bytes (`getImageBytes`, via `httpGet`, §3).
+2. `SetImageFromBytes(data)` — errors surfaced.
+3. `client.Text()` — run OCR, get the recognized text.
+4. Split on whitespace into `fields`, then call `extractNumber` twice in
    sequence (§10.2): once with `minLen = 3`, and — only if that returns an
    empty string — again with `minLen = 2`.
-7. If both passes come back empty, return the error `no collector number
+5. If both passes come back empty, return the error `no collector number
    found`, never an empty number: the caller would otherwise validate it
    as `"<card name> cn:"`, a search Scryfall always answers `not_found`.
 
