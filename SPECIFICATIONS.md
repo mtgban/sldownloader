@@ -873,9 +873,6 @@ in its own `todo/` file:
   [todo/002](todo/002-shared-http-client-with-timeout-and-status-checks.md)
 - Scryfall search results are not paginated (§9.3) —
   [todo/003](todo/003-scryfall-search-pagination.md)
-- No offline/fixture test coverage for any network-touching function
-  (§table in AGENTS.md §3) —
-  [todo/004](todo/004-golden-file-regression-tests-for-scraping.md)
 
 See [todo/README.md](todo/README.md) for the full backlog, including items
 that are process/tooling improvements rather than direct spec-level

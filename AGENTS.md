@@ -96,9 +96,8 @@ There is currently no `Makefile`/`justfile` wrapping the CGO flags (see
 ```
 
 Every run does a live Scryfall lookup (`https://scryfall.com/sets/sld`) to
-build the header index and live HTTP fetches of the product pages — there is
-no offline/fixture mode yet (see
-[todo/004-golden-file-regression-tests-for-scraping.md](todo/004-golden-file-regression-tests-for-scraping.md)).
+build the header index and live HTTP fetches of the product pages; only
+`go test` runs offline (§6).
 Expect a single product run to take several seconds due to network I/O and
 the Scryfall rate limiter (2 searches/s, see §4.4).
 
@@ -110,7 +109,7 @@ the Scryfall rate limiter (2 searches/s, see §4.4).
 |---|---|
 | [main.go](main.go) | Everything except the Scryfall client: CLI entrypoint (`run`/`main`), Scalefast catalog API client, product-page scraping (`scrapeProduct`, run as `fetchProductPage`, `parseCardList`, `matchEdition`, `ocrNumbers` and `backfillNumbers`), all the name/title cleaning heuristics (`cleanLine`, `cleanTitle`, `nameTags`), OCR (`getNumberFromLink`, `extractNumber`), collector-number backfill, and file output (`dumpCards`). |
 | [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the card-name catalog that protects real names from `cleanLine` (`loadCardNames`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchWithClient`, `searchURI`), which tells "no such card" apart from a Scryfall failure (`isScryfallError`). |
-| [main_test.go](main_test.go) | Table-driven tests for the pure string-processing functions (`cleanLine`, `cleanTitle`, `collectorNumberValue`, `normalizeCardName`, `canonicalName`, `matchCardNumbers`, `extractNumber`) and for `processLine`'s duplicate-merging behavior. `searchWithClient`'s handling of Scryfall errors is tested against a local `httptest` server that replays Scryfall's error bodies, and `getNumberFromLink` only on a blank image served by `httptest`. Nothing that reaches a live site is tested — `scrapeProduct` and `getProducts` have no test coverage (see [todo/004](todo/004-golden-file-regression-tests-for-scraping.md)). |
+| [main_test.go](main_test.go) | Table-driven tests for the pure string-processing functions (`cleanLine`, `cleanTitle`, `collectorNumberValue`, `normalizeCardName`, `canonicalName`, `matchCardNumbers`, `extractNumber`) and for `processLine`'s duplicate-merging behavior. The scraping pipeline is tested offline too: `parseCardList`, `galleryFoldMode` and `scrapeProduct` on short inline HTML snippets (`scrapeProduct` through a local `httptest` server), `matchEdition` and `backfillNumbers` against canned search results (`fakeSearch`). `searchWithClient`'s handling of Scryfall errors is tested against an `httptest` server replaying Scryfall's error bodies, and `getNumberFromLink` only on a blank image. Product pages are never saved into the repo: tests use hand-written snippets of just the markup the scraper reads. |
 | [.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml) | The daily automation: build the tool, run it against a page range remembered in a GitHub Actions repo variable (`SLD_LAST_PAGE`), diff the output against a fork of `taw/magic-preconstructed-decks`, push a branch, open a PR upstream. Runs no tests itself. |
 | [.github/workflows/test.yml](.github/workflows/test.yml) | `go build`, `go vet` and `go test -race` on every pull request and every push to `master`. Kept separate from the daily sync workflow so that pull request code never runs in a job holding its tokens. |
 | [README.md](README.md) | User-facing install/usage instructions. |
@@ -295,9 +294,9 @@ means changing the workflow's parsing in the same PR.
 
 ## 6. Verifying a fix live before opening a PR
 
-Because there is no fixture/golden-file test infrastructure yet, the
-established practice in this repo's history (see recent PRs) for validating
-a parsing fix is:
+Unit tests cover each step of the scraping pipeline offline (§3), but they
+run on hand-written snippets, not the real pages, so the established
+practice for validating a parsing fix is still:
 
 1. Reproduce with a **live** run against the actual product URL that
    exposed the bug: `./sldownloader <url>` (see §2).
@@ -312,9 +311,13 @@ a parsing fix is:
 3. Run the same fixed binary against a couple of **neighboring** drops
    (same catalog page, similar naming) as a cheap regression check — this
    has repeatedly caught the fix being too narrow or too broad.
-4. Add or update a table-driven test case in `main_test.go` that encodes the
-   fixed behavior, so the next person doesn't need to repeat the live
-   reproduction.
+4. Add or update a test case in `main_test.go` that encodes the fixed
+   behavior, so the next person doesn't need to repeat the live
+   reproduction: a `TestCleanLine` row for a name, or a short inline HTML
+   snippet (`TestParseCardList`) or canned search results
+   (`TestMatchEdition`, `TestBackfillNumbers`) for the steps after it.
+   Write the snippet by hand with only the markup involved; do not save
+   whole product pages into the repo.
 
 Before a `-page` crawl, check `pgrep -fl 'sld.* -page'` for one already
 running from this machine, and never run two back to back: they share
