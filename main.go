@@ -1,3 +1,5 @@
+// Command sldownloader turns Secret Lair product pages into decklists in the
+// format of magic-preconstructed-decks, numbering each card through Scryfall.
 package main
 
 import (
