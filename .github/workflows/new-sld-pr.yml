@@ -33,7 +33,7 @@ jobs:
           then
               PAGE=1;
           fi
-          echo "last_page=$PAGE" >> $GITHUB_OUTPUT
+          echo "last_page=$PAGE" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@v7
@@ -51,7 +51,7 @@ jobs:
         run: |
           go install ./...
 
-      - name: Clone data repo fork
+      - name: Clone the upstream data repo
         env:
           GH_PAT: ${{ secrets.GH_SLDOWN_OPENPR_TOKEN }}
         run: |
@@ -94,7 +94,7 @@ jobs:
 
           # Count untracked (new) files in the target path
           NEW_COUNT=$(git ls-files -o --exclude-standard data/sld/sld | wc -l)
-          echo "new_count=$NEW_COUNT" >> $GITHUB_OUTPUT
+          echo "new_count=$NEW_COUNT" >> "$GITHUB_OUTPUT"
 
           if [ "$NEW_COUNT" -gt 0 ];
           then
@@ -107,11 +107,11 @@ jobs:
             # commit
             git commit -m "Secret Lair Drop: new decks as of $(date -u +'%Y-%m-%d')"
 
-            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "No new files found."
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Push branch to fork
@@ -144,7 +144,7 @@ jobs:
               --base master \
               --title "$TITLE" \
               --body "$BODY"
-            echo "update=true" >> $GITHUB_OUTPUT
+            echo "update=true" >> "$GITHUB_OUTPUT"
           else
             echo "A PR with the same name is already open, skipping"
 
@@ -152,7 +152,7 @@ jobs:
             gh api -X DELETE "repos/${DATA_REPO}/git/refs/heads/${{ steps.stage.outputs.branch }}" \
               || echo "Could not delete the pushed branch, continuing"
 
-            echo "update=false" >> $GITHUB_OUTPUT
+            echo "update=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Update repo variable with next page
@@ -169,7 +169,7 @@ jobs:
               NEXT="$CUR"
           fi
 
-          gh variable set ${VAR_NAME} --body "$NEXT"
+          gh variable set "$VAR_NAME" --body "$NEXT"
 
           echo "Set $VAR_NAME=$NEXT"
 
