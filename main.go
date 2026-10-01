@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -114,8 +115,8 @@ type CardData struct {
 }
 
 // Which finish/type tags cleanLine actually stripped as real variant
-// markers, as opposed to a tag substring that turned out to be part of the
-// card's own name (see the keepEtched/keepFoil guards in cleanLine)
+// markers, as opposed to a tag word that is part of the card's own name
+// (see cardNames)
 type detectedTags struct {
 	Foil   bool
 	Etched bool
@@ -158,6 +159,103 @@ var nameTagRegexps = func() []*regexp.Regexp {
 	return regexps
 }()
 
+// The cuts cleanLine makes besides nameTags
+var (
+	parenRegexp     = regexp.MustCompile(`\(`)
+	foilRegexp      = regexp.MustCompile(`Foil`)
+	phyrexianRegexp = regexp.MustCompile(`Phyrexian`)
+	flavorRegexp    = regexp.MustCompile(` as `)
+	withArtRegexp   = regexp.MustCompile(` with art`)
+	slashesRegexp   = regexp.MustCompile(`//`)
+)
+
+// Every real card name, from Scryfall, so that cleanLine can tell a variant
+// marker or flavor name apart from the same text inside a card's own name
+type cardNames struct {
+	names map[string]bool
+	// For each cut, the names it would break
+	containing map[*regexp.Regexp][]string
+}
+
+func newCardNames(list []string) *cardNames {
+	cuts := append(slices.Clone(nameTagRegexps),
+		parenRegexp, foilRegexp, phyrexianRegexp, flavorRegexp, withArtRegexp, slashesRegexp)
+
+	n := &cardNames{
+		names:      make(map[string]bool, len(list)),
+		containing: make(map[*regexp.Regexp][]string),
+	}
+	for _, name := range list {
+		n.names[name] = true
+		// Product pages may list only the front face
+		if front, _, found := strings.Cut(name, " // "); found {
+			n.names[front] = true
+		}
+		for _, re := range cuts {
+			// A name made only of the cut, like the card Foil, protects nothing
+			if match := re.FindString(name); match != "" && match != name {
+				n.containing[re] = append(n.containing[re], name)
+			}
+		}
+	}
+	return n
+}
+
+// Report whether text is exactly a real card name, or the front face of one
+func (n *cardNames) is(text string) bool {
+	return n != nil && n.names[strings.TrimSpace(text)]
+}
+
+// Return the [start, end) of every match of re in text, except those inside
+// a real card name that text contains
+func (n *cardNames) matches(text string, re *regexp.Regexp) [][]int {
+	all := re.FindAllStringIndex(text, -1)
+	if n == nil || len(all) == 0 {
+		return all
+	}
+	var free [][]int
+	for _, m := range all {
+		if !n.protected(text, re, m) {
+			free = append(free, m)
+		}
+	}
+	return free
+}
+
+func (n *cardNames) protected(text string, re *regexp.Regexp, m []int) bool {
+	for _, name := range n.containing[re] {
+		for i := 0; i < len(text); {
+			j := strings.Index(text[i:], name)
+			if j < 0 {
+				break
+			}
+			start := i + j
+			if start <= m[0] && m[1] <= start+len(name) {
+				return true
+			}
+			i = start + 1
+		}
+	}
+	return false
+}
+
+// Replace the given [start, end) spans of text
+func replaceMatches(text string, matches [][]int, replacement string) string {
+	var b strings.Builder
+	last := 0
+	for _, m := range matches {
+		b.WriteString(text[last:m[0]])
+		b.WriteString(replacement)
+		last = m[1]
+	}
+	b.WriteString(text[last:])
+	return b.String()
+}
+
+func frontFace(name string) string {
+	return strings.TrimSpace(strings.Split(name, " // ")[0])
+}
+
 // Turn any unicode white space into a plain one, in its own pass: the
 // replacers below are single-pass and never rescan their own output, so eg
 // "Secret Lair x " could never match a title where a non-breaking space had
@@ -172,8 +270,10 @@ func normalizeSpaces(s string) string {
 }
 
 // Derive the card name, removing any special tag, and report which
-// finish/type tags were actually found along the way
-func cleanLine(cardLine string) (string, int, detectedTags, error) {
+// finish/type tags were actually found along the way. No cut removes text
+// inside a real card name the line contains, eg "Phyrexian Altar" or
+// "Isshin, Two Heavens as One"; names may be nil, which protects nothing
+func cleanLine(cardLine string, names *cardNames) (string, int, detectedTags, error) {
 	var tags detectedTags
 
 	// Unicode characters
@@ -196,53 +296,38 @@ func cleanLine(cardLine string) (string, int, detectedTags, error) {
 	cardLine = strings.TrimSpace(fields[1])
 
 	// Remove anything appearing after a parenthesis
-	if strings.Contains(cardLine, "(") {
-		cardLine = strings.Split(cardLine, "(")[0]
+	if m := names.matches(cardLine, parenRegexp); len(m) > 0 {
+		cardLine = cardLine[:m[0][0]]
+	}
+	if names.is(cardLine) {
+		return frontFace(cardLine), num, tags, nil
 	}
 
 	// Remove everything before "Foil" to catch variants like Galaxy Textured etc,
-	// as long as they are before the card name and not part of the name itself
-	if strings.Contains(cardLine, "Foil") && cardLine != "Foil" &&
-		!strings.Contains(cardLine, "Foil to Conspiracy") &&
+	// as long as they are before the card name and not a tag after it
+	if m := names.matches(cardLine, foilRegexp); len(m) > 0 &&
 		!strings.HasSuffix(cardLine, "Foil Edition") && !strings.HasSuffix(cardLine, "Foil Etched") {
-		fields := strings.Split(cardLine, "Foil")
-		cardLine = fields[1]
+		end := len(cardLine)
+		if len(m) > 1 {
+			end = m[1][0]
+		}
+		cardLine = cardLine[m[0][1]:end]
 		tags.Foil = true
-	}
-
-	// Remove this tag except for the cards with Phyrexian in them
-	if !strings.Contains(cardLine, "Tower") &&
-		!strings.Contains(cardLine, "Crusader") &&
-		!strings.Contains(cardLine, "Metamorph") &&
-		!strings.Contains(cardLine, "Reclamation") &&
-		!strings.Contains(cardLine, "Arena") &&
-		!strings.Contains(cardLine, "Unlife") {
-		cardLine = strings.ReplaceAll(cardLine, "Phyrexian", "")
-	}
-
-	// Some real card names contain a tag word, do not strip it from those
-	keepEtched := false
-	for _, name := range []string{
-		"Etched Champion", "Etched Cornfield", "Etched Familiar",
-		"Etched Host", "Etched Monstrosity", "Etched Oracle", "Etched Slith",
-	} {
-		if strings.Contains(cardLine, name) {
-			keepEtched = true
-			break
+		if names.is(cardLine) {
+			return frontFace(cardLine), num, tags, nil
 		}
 	}
-	keepFoil := cardLine == "Foil" || strings.Contains(cardLine, "Foil to Conspiracy")
+
+	// Remove the Phyrexian language tag
+	cardLine = replaceMatches(cardLine, names.matches(cardLine, phyrexianRegexp), "")
 
 	// Remove random prefixes from card names
 	for i, tag := range nameTags {
-		if (keepEtched && tag == "Etched") || (keepFoil && tag == "Foil") {
+		m := names.matches(cardLine, nameTagRegexps[i])
+		if len(m) == 0 {
 			continue
 		}
-		before := cardLine
-		cardLine = nameTagRegexps[i].ReplaceAllString(cardLine, "")
-		if cardLine == before {
-			continue
-		}
+		cardLine = replaceMatches(cardLine, m, "")
 		switch tag {
 		case "Foil":
 			tags.Foil = true
@@ -257,18 +342,18 @@ func cleanLine(cardLine string) (string, int, detectedTags, error) {
 	}
 
 	// Remove flavor names
-	if strings.Contains(cardLine, " as ") {
-		cardLine = strings.Split(cardLine, " as ")[0]
+	if m := names.matches(cardLine, flavorRegexp); len(m) > 0 {
+		cardLine = cardLine[:m[0][0]]
 	}
 
 	// Bob Ross Drop
-	if strings.Contains(cardLine, " with art") {
-		cardLine = strings.Split(cardLine, " with art")[0]
+	if m := names.matches(cardLine, withArtRegexp); len(m) > 0 {
+		cardLine = cardLine[:m[0][0]]
 	}
 
 	// Standardize DFC
-	if strings.Contains(cardLine, "//") && !strings.Contains(cardLine, " // ") {
-		cardLine = strings.ReplaceAll(cardLine, "//", " // ")
+	if !strings.Contains(cardLine, " // ") {
+		cardLine = replaceMatches(cardLine, names.matches(cardLine, slashesRegexp), " // ")
 	}
 	if strings.Contains(cardLine, " / ") && !strings.Contains(cardLine, " // ") {
 		cardLine = strings.ReplaceAll(cardLine, " / ", " // ")
@@ -371,14 +456,14 @@ func cleanTitle(title string) (string, string) {
 
 // In case of error, the input cards is returned as is, so this fuction can be
 // reused in a loop multiple times
-func processLine(cards []CardData, line string) ([]CardData, error) {
+func processLine(cards []CardData, line string, names *cardNames) ([]CardData, error) {
 	var card CardData
 
 	if line == "" {
 		return cards, nil
 	}
 
-	cardLine, num, tags, err := cleanLine(line)
+	cardLine, num, tags, err := cleanLine(line, names)
 	if err != nil {
 		return cards, err
 	}
@@ -556,7 +641,7 @@ func matchCardNumbers(cards, results []CardData) {
 	}
 }
 
-func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, doOCR bool) (*CardSet, error) {
+func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNames, link string, doOCR bool) (*CardSet, error) {
 	resp, err := newRetryClient().Get(link)
 	if err != nil {
 		return nil, err
@@ -577,7 +662,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, d
 	var cards []CardData
 	doc.Find(`div[class="force-overflow"] ul li`).Each(func(_ int, s *goquery.Selection) {
 		line := s.Text()
-		cards, err = processLine(cards, line)
+		cards, err = processLine(cards, line, names)
 		if err != nil {
 			log.Printf("%s - %s", line, err.Error())
 		}
@@ -587,7 +672,7 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, link string, d
 		// Fallback if there were no bullet points
 		productInfo, _ := doc.Find(`div[id="collapse2"] div[class="force-overflow"] p[class="product-information"]`).Html()
 		for _, line := range strings.Split(productInfo, "<br/>") {
-			cards, err = processLine(cards, line)
+			cards, err = processLine(cards, line, names)
 			if err != nil {
 				log.Printf("%s - %s", line, err.Error())
 			}
@@ -814,10 +899,17 @@ func run() int {
 	}
 	log.Println("Parsed Scryfall set page,", len(headers), "products found")
 
+	names, err := loadCardNames(ctx)
+	if err != nil {
+		log.Println("Unable to load the Scryfall card names:", err)
+		return 1
+	}
+	log.Println("Loaded", len(names.names), "Scryfall card names and front faces")
+
 	if args := flag.Args(); len(args) > 0 {
 		exitCode := 0
 		for i, arg := range args {
-			cardSet, err := scrapeProduct(ctx, headers, arg, *doOCROpt)
+			cardSet, err := scrapeProduct(ctx, headers, names, arg, *doOCROpt)
 			if err != nil {
 				log.Println("page", i, "-", err)
 				exitCode = 1
@@ -885,7 +977,7 @@ func run() int {
 			}
 
 			link := "https://secretlair.wizards.com/us/product/" + product.ProductID
-			cardSet, err := scrapeProduct(ctx, headers, link, *doOCROpt)
+			cardSet, err := scrapeProduct(ctx, headers, names, link, *doOCROpt)
 			if err != nil {
 				log.Println("page", i-1, "-", err)
 				continue

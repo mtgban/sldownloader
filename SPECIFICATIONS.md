@@ -59,7 +59,7 @@ sldownloader [-page N] [-ocr] [URL ...]
 | Scalefast Store Search API | JSON, paginated, no auth (`scalefastURL` in main.go) | Enumerating Secret Lair catalog products in catalog-crawl mode | `retryablehttp` (fresh client per call, no shared rate limiting) |
 | `secretlair.wizards.com/.../product/<id>` | HTML | The actual card list, title, and image gallery for one product | `retryablehttp` (fresh client per call, default logger — i.e. **not** silenced, unlike the other two `retryablehttp` clients in the codebase) |
 | `scryfall.com/sets/sld` | HTML (scraped, **not** the JSON API) | The list of `(edition title, prebuilt search URI)` pairs used for the primary name-matching pass | `go-cleanhttp` default client, once per process run |
-| `api.scryfall.com` | REST/JSON, via [go-scryfall](https://github.com/BlueMonday/go-scryfall) | Card search/validation: resolving an edition's card list, and validating OCR/backfill guesses | Single shared, lazily-constructed, 8 req/s rate-limited client (`getScryfallClient`) — see §5.5 |
+| `api.scryfall.com` | REST/JSON, via [go-scryfall](https://github.com/BlueMonday/go-scryfall) | Card search/validation: resolving an edition's card list, and validating OCR/backfill guesses; once per run, the full card-name catalog that protects real names from `cleanLine`'s cuts (§9.5) | Single shared, lazily-constructed, 8 req/s rate-limited client (`getScryfallClient`) — see §5.5 |
 
 None of these integrations use authentication. None but the Scryfall REST
 API client has explicit rate limiting applied by this tool.
@@ -353,6 +353,7 @@ larger than a padded/longer one would lose to the longer string here.
 | Path | Exit code |
 |---|---|
 | Scryfall header load fails (`loadScryfallHeaders` errors) | `1` |
+| Scryfall card-name catalog fails to load (`loadCardNames` errors) | `1` |
 | Explicit-URL mode, **all** URLs scraped/dumped successfully | `0` |
 | Explicit-URL mode, **any** URL failed (all URLs are still attempted) | `1` |
 | Catalog-crawl mode, `-page` not given (stays at default `-1`) | `1` |
@@ -386,15 +387,20 @@ in the right order, on text the replacer hasn't already rewritten out from
 under itself. Normalizing to plain spaces up front sidesteps the ordering
 problem entirely.
 
-### 8.2 `cleanLine(cardLine string) (name string, count int, tags detectedTags, err error)`
+### 8.2 `cleanLine(cardLine string, names *cardNames) (name string, count int, tags detectedTags, err error)`
 
 Applied to one scraped bullet/line of card-list text. `detectedTags` is a
 small struct (`Foil`, `Etched`, `Token bool`) recording which finish/type
 tags were actually consumed as real variant markers during the steps
-below — as opposed to a tag substring that turned out to be part of the
-card's own name and was therefore left alone. `processLine` (§8.6) uses
-this report directly, rather than re-deriving Foil/Etched/Token from the
-raw line independently. Steps, in order:
+below — as opposed to a tag word that is part of the card's own name and
+was therefore left alone. `processLine` (§8.6) uses this report directly,
+rather than re-deriving Foil/Etched/Token from the raw line independently.
+
+`names` is Scryfall's card-name catalog (§9.5). Every cut in steps 7–13
+skips any match that falls inside a real card name the remainder contains
+(`names.matches`), so e.g. "Phyrexian Altar", "Isshin, Two Heavens as One"
+and "Etched Champion" survive intact while the same words elsewhere in the
+line are still cut. A nil `names` protects nothing. Steps, in order:
 
 1. `normalizeSpaces`.
 2. Replace curly quotes: `’`→`'`, `”`→`"`, `“`→`"`.
@@ -408,47 +414,40 @@ raw line independently. Steps, in order:
    non-numeric prefix returns the error `"invalid number in line"`.
 6. `TrimSpace` the remainder — this is the working `cardLine` for the rest
    of the function.
-7. If the remainder contains `(`, truncate everything from `(` onward
-   (drops parenthetical annotations like `(Retro Frame)`).
-8. **Foil-prefix stripping**: if the remainder contains `"Foil"`, is not
-   exactly `"Foil"`, does not contain `"Foil to Conspiracy"`, and does not
-   end with `"Foil Edition"` or `"Foil Etched"` — split on the first
-   `"Foil"` and keep everything **after** it. This strips leading variant
-   descriptors that precede the word "Foil" (e.g. `"Galaxy Foil Sol Ring"`
-   → `"Sol Ring"`), while the exclusions protect the literal card named
-   "Foil" and the card "Lavinia, Foil to Conspiracy" (whose name contains
-   "Foil" mid-string, not as a prefix marker) from being truncated. When
-   this branch fires, `tags.Foil` is set — this is a genuine foil-variant
-   marker being consumed, not just name text.
-9. **Phyrexian-tag removal**: strip the literal substring `"Phyrexian"`
-   unless the remainder also contains one of `"Tower"`, `"Crusader"`,
-   `"Metamorph"`, `"Reclamation"`, `"Arena"`, or `"Unlife"` — these six
-   guard real card names that are themselves Phyrexian-named (e.g.
-   "Phyrexian Tower", "Phyrexian Metamorph", "Phyrexian Arena").
-10. **Tag-word stripping**: for each tag in `nameTags` (§8.3), unless it is
-    explicitly protected for this line (`keepEtched`/`keepFoil`, computed
-    just before this step by checking whether the remainder contains one
-    of a fixed list of real card names built from "Etched" or "Foil" — see
-    §8.3), remove every word-boundary match (original or lowercased form)
-    via the precompiled `nameTagRegexps`. Whenever a tag's regex actually
-    matches and strips something (compared before/after), the
-    corresponding `detectedTags` field is set: `"Foil"` → `tags.Foil`,
-    `"Etched"` → `tags.Etched`, `"Foil-etched"` → both, `"Token"`/`"Tokens"`
-    → `tags.Token`. A tag skipped by `keepEtched`/`keepFoil` for this line
-    never reaches the strip, so it never sets its flag — this is what
-    keeps e.g. "Lavinia, Foil to Conspiracy" (no real foil-variant marker
-    in that line) from being reported as `tags.Foil`, while "Etched
-    Champion" appearing after an actual `"Foil "` prefix (step 8) still
-    correctly reports `tags.Foil` (from step 8) without also reporting
-    `tags.Etched` (protected here, since "Etched Champion" is the card's
-    own name).
-11. **Flavor-name removal**: if the remainder contains `" as "`, keep only
-    the text before it (strips "X as Y" flavor-name framing).
-12. **"Bob Ross Drop" special case**: if the remainder contains
-    `" with art"`, keep only the text before it.
-13. **DFC (double-faced card) standardization**: if the remainder contains
-    `"//"` but not `" // "`, insert surrounding spaces; same for a lone
-    `" / "` (single slash) that isn't already part of `" // "`.
+7. Truncate at the first `(` outside a real name (drops parenthetical
+   annotations like `(Retro Frame)`, but keeps "B.F.M. (Big Furry
+   Monster)"). Then, if the remainder is exactly a real card name or the
+   front face of one, return its front face (§14) with no tags — this is
+   what keeps the card literally named "Foil", and a full DFC name, from
+   going through the cuts below.
+8. **Foil-prefix stripping**: if the remainder has a `"Foil"` outside a
+   real name and does not end with `"Foil Edition"` or `"Foil Etched"`,
+   keep the text between the first such `"Foil"` and the next one (or the
+   end of the line). This strips leading
+   variant descriptors (e.g. `"Galaxy Foil Sol Ring"` → `"Sol Ring"`, and
+   `"Foil Lavinia, Foil to Conspiracy"` → `"Lavinia, Foil to Conspiracy"`)
+   and sets `tags.Foil`. If what is left is exactly a real card name,
+   return it with `tags.Foil` set.
+9. **Phyrexian-tag removal**: remove every `"Phyrexian"` outside a real
+   name (the Phyrexian-language marker, e.g. "Phyrexian Vorinclex, Voice of
+   Hunger" → "Vorinclex, Voice of Hunger"; "Showcase Phyrexian Tower" keeps
+   its "Phyrexian").
+10. **Tag-word stripping**: for each tag in `nameTags` (§8.3), remove every
+    word-boundary match (original or lowercased form, via the precompiled
+    `nameTagRegexps`) outside a real name. Whenever a tag actually removes
+    something, the corresponding `detectedTags` field is set: `"Foil"` →
+    `tags.Foil`, `"Etched"` → `tags.Etched`, `"Foil-etched"` → both,
+    `"Token"`/`"Tokens"` → `tags.Token`. A tag word inside a real name is
+    never removed and so never sets its flag: "Foil Etched Champion"
+    reports `tags.Foil` (from step 8) but not `tags.Etched`.
+11. **Flavor-name removal**: truncate at the first `" as "` outside a real
+    name (strips "X as Y" flavor-name framing, but keeps "Fight as One").
+12. **"Bob Ross Drop" special case**: truncate at the first `" with art"`
+    outside a real name.
+13. **DFC (double-faced card) standardization**: if the remainder has no
+    `" // "`, surround every `"//"` outside a real name with spaces (so
+    "SP//dr, Piloted by Peni" is left alone); then, if there is still no
+    `" // "`, replace every `" / "` with `" // "`.
 14. **Single-face reduction**: split on `" // "` and keep only the first
     face's name (this tool tracks front faces only).
 15. Rename `"Sticker Sheets"` → `"Sticker sheet"` (matches upstream's
@@ -484,20 +483,11 @@ closure) into a regex that:
   "Expedition", but a symbol-only tag like `"*"` (no word-character edges)
   is matched anywhere it appears, unchanged from naive substring removal.
 
-Before this loop runs, two guards are computed for the current line:
-- `keepEtched`: true if the line contains one of "Etched Champion",
-  "Etched Cornfield", "Etched Familiar", "Etched Host", "Etched
-  Monstrosity", "Etched Oracle", or "Etched Slith" (the seven real Magic
-  cards whose own name starts with "Etched"). If true, the `"Etched"` tag
-  is skipped for this line.
-- `keepFoil`: true if the remainder is exactly `"Foil"` (the card literally
-  named "Foil") or contains `"Foil to Conspiracy"` (Lavinia's card). If
-  true, the `"Foil"` tag is skipped for this line.
-
-These lists are known-exhaustive **as of the time they were written**, not
-guaranteed exhaustive against future Magic card names. Adding a new tag to
-`nameTags` should be checked against a live Scryfall name search for
-collisions before shipping (see AGENTS.md §4.3/§6).
+Real card names that contain a tag word ("Etched Champion" and the seven
+other "Etched ___" cards, "Lavinia, Foil to Conspiracy", "Finally!
+Left-Handed Magic Cards") are protected by the card-name catalog (§9.5),
+not by a fixed list, so a tag added to `nameTags` is automatically kept
+out of every real card name, current and future.
 
 ### 8.4 `cleanTitle(title string) (filename string, name string)`
 
@@ -597,7 +587,7 @@ entirely (punctuation, spaces, symbols). Two names compare equal under
 this function if and only if they agree on their letters and digits,
 ignoring case, spacing, and punctuation entirely.
 
-### 8.6 `processLine(cards []CardData, line string) ([]CardData, error)`
+### 8.6 `processLine(cards []CardData, line string, names *cardNames) ([]CardData, error)`
 
 Wraps `cleanLine` with duplicate-merging and the "Different" expansion.
 On a `cleanLine` error, the input `cards` slice is returned unchanged
@@ -608,9 +598,9 @@ does not lose prior progress).
   `detectedTags` `cleanLine` returns (§8.2) — not from an independent
   check of the raw line. This is what keeps a card whose real name happens
   to contain "Foil" or "Etched" (e.g. "Lavinia, Foil to Conspiracy", the
-  seven "Etched ___" cards) from being misclassified as having that
-  finish, since `cleanLine`'s own `keepFoil`/`keepEtched` guards (already
-  needed for the name-cleaning itself) are the single source of truth for
+  "Etched ___" cards) from being misclassified as having that finish,
+  since `cleanLine`'s protection of real card names (§8.2, §9.5), already
+  needed for the name-cleaning itself, is the single source of truth for
   whether an occurrence of one of these words was a real variant marker.
 - If the raw line contains `"Different"`, the count is expanded: `num`
   identical entries are appended, each with `Count = 1` (used for lines
@@ -693,6 +683,27 @@ for that edition's "view all prints" link, guaranteeing the same
 inclusion/exclusion semantics.
 
 ---
+
+### 9.5 `loadCardNames(ctx) (*cardNames, error)`
+
+Once per run, after the headers (§9.1), `run()` fetches Scryfall's
+`catalog/card-names` (every non-token English card name, about 35,000)
+through the shared rate-limited client (§9.2) and builds a `cardNames`
+from it. An error, or an empty catalog, makes the run exit `1` (§7):
+without it `cleanLine` would cut into real card names.
+
+`cardNames` holds:
+- `names`: every full name, plus the front face of every `" // "` name, for
+  the exact-name checks in §8.2 steps 7–8;
+- `containing`: for each cut `cleanLine` makes (each `nameTagRegexps`
+  entry, and `(`, `Foil`, `Phyrexian`, `" as "`, `" with art"`, `//`), the
+  names that cut matches, except a name it matches entirely (the card
+  "Foil", which only the exact-name check protects).
+
+`names.matches(text, re)` returns the positions of `re` in `text`, minus
+any that lie within an occurrence in `text` of one of `containing[re]`.
+Building the index from the full catalog takes about 0.3s. Token names are
+not in the catalog, so they get no protection.
 
 ## 10. OCR (`getNumberFromLink`, `extractNumber`)
 

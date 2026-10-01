@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"slices"
@@ -73,6 +74,22 @@ func loadScryfallHeaders(ctx context.Context) ([]scryfallHeader, error) {
 	})
 
 	return headers, nil
+}
+
+// Load every real card name, which cleanLine must never cut into
+func loadCardNames(ctx context.Context) (*cardNames, error) {
+	client, err := getScryfallClient()
+	if err != nil {
+		return nil, err
+	}
+	catalog, err := client.GetCardNamesCatalog(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(catalog.Data) == 0 {
+		return nil, errors.New("empty card name catalog")
+	}
+	return newCardNames(catalog.Data), nil
 }
 
 // Make a search call rebuilding the query used in the headers
