@@ -1,7 +1,7 @@
 # sldownloader
 The only drop that matters is a downloaded one
 
-`sldownloader` is a small Go tool that retrieves Secret Lair product pages and extracts the **card names** and their **collector numbers** via Scryfall, OCR and a few heuristics. The output format is a filename (or a series of filenames) compatible with [magic-preconstructed-decks](https://github.com/taw/magic-preconstructed-decks/) decklists. These files can be dropped in taw's project folder `data/sld/sld/` directly for use.
+`sldownloader` is a small Go tool that retrieves Secret Lair product pages and extracts the **card names** and their **collector numbers** via Scryfall, OCR and a few heuristics. It writes one decklist per product in the format of [magic-preconstructed-decks](https://github.com/taw/magic-preconstructed-decks/), ready to drop into taw's `data/sld/sld/` folder.
 
 ---
 
@@ -9,9 +9,10 @@ The only drop that matters is a downloaded one
 
 - Scrapes product pages, either from a paginated catalog API or explicit URLs.
 - Parses card lists, cleaning the output of any extra characters.
-- Retrieves card names from the page and associates it with Scryfall edition titles.
+- Matches each product to its Scryfall edition to number the cards, keeping Scryfall's spelling of each name.
 - Uses OCR on the image gallery, to discover the collector number from the image itself.
 - Backfills missing numbers by inferring contiguous sequences when possible.
+- Runs daily in GitHub Actions and opens a PR upstream with any new drops, listing products that failed.
 
 ---
 
@@ -45,13 +46,13 @@ From a checkout, `make build` builds `./sldownloader` with those flags set, and 
 
 ## Usage
 
-You can run the tool by setting a starting page from which the catalog will be read (until there is no more data), with `-page 0` starting from the very beginning:
+You can run the tool by setting a starting page from which the catalog will be read (until there is no more data), with `-page 0` starting from the very beginning. It writes a `.txt` decklist per product into the current directory:
 
 ```bash
 ./sldownloader -page 1
 ```
 
-or with an explict product page URL:
+or with explicit product page URLs, printing each decklist to stdout:
 
 ```bash
 ./sldownloader https://secretlair.wizards.com/eu/en/product/1002048/showcase-bloomburrow

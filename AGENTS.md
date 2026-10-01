@@ -89,13 +89,15 @@ one in `go.mod` fails to type-check this module.
 
 # Force OCR even when the Scryfall edition match succeeds
 ./sldownloader -ocr https://secretlair.wizards.com/us/product/<id>
+
+# Which commit this binary was built from
+./sldownloader -version
 ```
 
-Every run does a live Scryfall lookup (`https://scryfall.com/sets/sld`) to
-build the header index and live HTTP fetches of the product pages; only
-`go test` runs offline (§6).
-Expect a single product run to take several seconds due to network I/O and
-the Scryfall rate limiter (2 searches/s, see §4.4).
+Every run fetches `scryfall.com/sets/sld` (the edition index) and Scryfall's
+card-name catalog before scraping any product page live; only `go test`
+runs offline (§6). Expect a single product run to take several seconds
+due to network I/O and the Scryfall rate limiter (2 searches/s, see §4.4).
 
 ---
 
@@ -104,15 +106,15 @@ the Scryfall rate limiter (2 searches/s, see §4.4).
 | File | Contents |
 |---|---|
 | [Makefile](Makefile) | `build`, `vet`, `test`, `lint` and `check`, with the macOS cgo flags set (§2). |
-| [main.go](main.go) | Everything except the Scryfall client: CLI entrypoint (`run`/`main`), Scalefast catalog API client, product-page scraping (`scrapeProduct`, run as `fetchProductPage`, `parseCardList`, `matchEdition`, `ocrNumbers` and `backfillNumbers`), all the name/title cleaning heuristics (`cleanLine`, `cleanTitle`, `nameTags`), OCR (`getNumberFromLink`, `extractNumber`), collector-number backfill, and file output (`dumpCards`). |
+| [main.go](main.go) | Everything except the Scryfall client: the CLI (`run`, `-version`), the catalog crawl and its report (`crawl`, `crawlReport`, `getProducts`), fetching (`httpGet`), product-page scraping (`scrapeProduct`, run as `fetchProductPage`, `parseCardList`, `matchEdition`, `ocrNumbers` and `backfillNumbers`), name and title cleaning (`cleanLine`, `cardNames`, `cleanTitle`, `nameTags`), OCR (`getNumberFromLink`, `extractNumber`), and file output (`formatCards`, `dumpCards`). |
 | [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the card-name catalog that protects real names from `cleanLine` (`loadCardNames`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchWithClient`, `searchURI`), which tells "no such card" apart from a Scryfall failure (`isScryfallError`). |
-| [main_test.go](main_test.go) | Table-driven tests for the pure string-processing functions (`cleanLine`, `cleanTitle`, `collectorNumberValue`, `normalizeCardName`, `canonicalName`, `matchCardNumbers`, `extractNumber`) and for `processLine`'s duplicate-merging behavior. The scraping pipeline is tested offline too: `parseCardList`, `galleryFoldMode` and `scrapeProduct` on short inline HTML snippets (`scrapeProduct` through a local `httptest` server), `matchEdition` and `backfillNumbers` against canned search results (`fakeSearch`). `searchWithClient`'s handling of Scryfall errors is tested against an `httptest` server replaying Scryfall's error bodies, and `getNumberFromLink` only on a blank image. Product pages are never saved into the repo: tests use hand-written snippets of just the markup the scraper reads. |
+| [main_test.go](main_test.go) | Table-driven tests for the string helpers (`cleanLine`, `cleanTitle`, `matchCardNumbers` and the rest), and offline tests of every pipeline step: `parseCardList`, `galleryFoldMode`, `parseEditionHeaders` and `scrapeProduct` on short hand-written HTML snippets (`scrapeProduct` and `httpGet` through a local `httptest` server), `matchEdition` and `backfillNumbers` against canned search results (`fakeSearch`), `searchWithClient` and `searchCache` against replayed Scryfall replies, `getNumberFromLink` on a blank image, and the crawl's report and interruption. No product page is saved into the repo. |
 | [.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml) | The daily automation: build the tool, run it against a page range remembered in a GitHub Actions repo variable (`SLD_LAST_PAGE`), diff the output against a fork of `taw/magic-preconstructed-decks`, push a branch, open a PR upstream. Runs no tests itself. |
-| [.github/workflows/test.yml](.github/workflows/test.yml) | `go build`, `go vet` and `go test -race` on every pull request and every push to `master`. Kept separate from the daily sync workflow so that pull request code never runs in a job holding its tokens. |
+| [.github/workflows/test.yml](.github/workflows/test.yml) | Build, vet, golangci-lint and `go test -race` on every pull request and every push to `master`. Kept separate from the daily sync workflow so that pull request code never runs in a job holding its tokens. |
 | [.github/dependabot.yml](.github/dependabot.yml) | Weekly grouped version-update PRs for Go modules and for GitHub Actions; the Test workflow gates them. |
 | [README.md](README.md) | User-facing install/usage instructions. |
 | [SPECIFICATIONS.md](SPECIFICATIONS.md) | Full behavioral/data-format specification of the tool. |
-| [todo/](todo/) | Improvement backlog, one file per item — see §7. |
+| [todo/](todo/) | Improvement backlog, one file per item, empty when nothing is pending — see §7. |
 
 There is no `internal/`, no subpackages, no `cmd/` layout. Everything is
 `package main` in the repo root by design; this is intentionally a small tool,
@@ -132,20 +134,23 @@ obvious; the history is full of one-line fixes for one specific drop.
 
 ### 4.1 The matching pipeline (high level — full detail in SPECIFICATIONS.md)
 
-1. Scrape the product page's bullet list into
-   raw `CardData` entries via `cleanLine` (name + count only, no number yet).
+1. Scrape the product page's bullet list into raw `CardData` entries via
+   `cleanLine` (name + count only, no number yet), which never cuts into a
+   real card name (§4.3).
 2. Fuzzy-match the product title against the list of Secret Lair edition
    titles scraped from `scryfall.com/sets/sld`, then pull that edition's
    card list from the Scryfall API and align by name (`matchCardNumbers`) to
    assign collector numbers.
-3. If no edition matched, or specific cards are still missing a number,
-   fall back to OCR against the product gallery images
-   (`getNumberFromLink` → `extractNumber`), each result **validated** against
-   a live Scryfall search (`name cn:<number>`) before being trusted.
-4. If cards are *still* missing a number after OCR, backfill by assuming
-   contiguous collector numbers relative to the highest-confidence number
-   found, again validating each guess against Scryfall.
-5. Sort by numeric collector number, write out a `.txt` file.
+3. Sort by numeric collector number (stable, so unnumbered cards keep page
+   order).
+4. If no edition matched (or with `-ocr`), OCR the product gallery images
+   (`getNumberFromLink` → `extractNumber`) for the cards still unnumbered,
+   each result **validated** against a live Scryfall search
+   (`name cn:<number>`) before being trusted.
+5. If cards are *still* missing a number, backfill by assuming contiguous
+   collector numbers from the longest number found, again validating each
+   guess against Scryfall.
+6. Write out a `.txt` file.
 
 ### 4.2 Collector numbers are always 3+ digits for this domain
 
@@ -182,8 +187,8 @@ already fixed and **must stay fixed**:
   (`normalizeSpaces`) *before* any string replacer runs. `strings.NewReplacer`
   is single-pass and never rescans its own output, so a replacer-based
   "fix" for one whitespace variant (e.g. only U+202F) will not catch others
-  (e.g. U+00A0) even if you add both as pairs — this exact bug shipped once
-  and is why `normalizeSpaces` exists as its own function.
+  (e.g. U+00A0) even if you add both as pairs; `normalizeSpaces` handles
+  every variant in one pass, so keep whitespace fixes there.
 - Card name spelling mismatches from the upstream page (typos, spurious
   punctuation) are **not** patched with a hardcoded string replacement for
   each one. Instead, `canonicalName`/`matchCardNumbers` adopt whatever
@@ -212,12 +217,10 @@ own warning text, risks a network block. `search` answers a query it has
 already sent in this run from memory (`searchCache`), since a Foil Edition
 and its nonfoil twin send the same ones. `getScryfallClient` (scryfall.go)
 enforces **2 req/s** via a single shared, lazily-initialized
-`*scryfall.Client` (`sync.Once`). This sharing is
-load-bearing: the underlying `go-scryfall` rate limiter lives on the client
-instance, so constructing a fresh client per call (as the code used to do)
-defeats it entirely — no request pacing happens without a shared client. If
-you ever see per-call `scryfall.NewClient()` reappear in a diff, that is
-almost certainly reintroducing this exact bug.
+`*scryfall.Client` (`sync.Once`). This sharing is load-bearing: the
+underlying `go-scryfall` rate limiter lives on the client instance, so a
+fresh client per call would not pace anything. A per-call
+`scryfall.NewClient()` in a diff turns the rate limiting off.
 
 The limiter also has **no burst slack** (`newScryfallLimiter`).
 `ratelimit.New` defaults to a slack of 10, which banks the time spent on
@@ -333,11 +336,11 @@ branch directly, in the `kodawah/magic-preconstructed-decks` fork).
 
 ## 7. The `todo/` folder
 
-[todo/](todo/) contains one Markdown file per known improvement opportunity
-that is not yet implemented — problem, impact, and a suggested approach for
-each. It is not a promise of intent or a roadmap; it is a durable notepad so
-findings from review don't get lost between sessions. See
-[todo/README.md](todo/README.md) for the index and picking guidance.
+[todo/](todo/) holds one Markdown file per known improvement that is not yet
+implemented — problem, impact, and a suggested approach for each — and is
+empty when nothing is pending. It is not a promise of intent or a roadmap;
+it is a durable notepad so findings from review don't get lost between
+sessions. [todo/README.md](todo/README.md) is the index.
 
 When you pick up a `todo/NNN-*.md` item and implement it, delete the file in
 the same PR that lands the fix (don't leave a stale entry pointing at
@@ -355,7 +358,9 @@ already-done work), and update `todo/README.md`'s index accordingly.
 - **One PR per concern.** Recent history in this repo consistently splits
   unrelated fixes (rate limiting, a workflow tweak, parser bugs, docs) into
   separate PRs rather than one large one, even when they were found in the
-  same review pass. Follow that pattern.
+  same review pass. Follow that pattern unless the maintainer asks for a
+  batch in one PR; then give each item its own commit, each one building
+  and passing tests on its own.
 - **Never push directly to `master`.** Always land work as a feature branch
   + PR (`gh pr create`), even for small fixes. Pushing straight to `master`
   needs an explicit, separately-given instruction — a repo's history of
