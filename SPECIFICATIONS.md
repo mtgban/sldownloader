@@ -109,7 +109,8 @@ Bundle, BUNDLE, Festival in a Box, Transformers TCG, DRAGON'S ENDGAME,
 [both "Secret Lair" AND "Deck" in the same title], They're Just Like Us but,
 Heads I Win, Tails, Deluxe Collection, Heroes of the Borderlands,
 Welcome to the Hellfire Club, D&D Sapphire Anniversary, Fan Merch,
-30th Anniversary Edition, Japanese, " JP", " SP", Countdown Kit
+30th Anniversary Edition, Japanese, " JP", " SP", Countdown Kit,
+The Zeta Set
 ```
 
 This list encodes accumulated exclusions for non-card-decklist product
