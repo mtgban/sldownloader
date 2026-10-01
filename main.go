@@ -676,6 +676,21 @@ func matchCardNumbers(cards, results []CardData) {
 	}
 }
 
+// What the scraper reads off a secretlair.wizards.com product page; a
+// redesign of the site breaks these first
+const (
+	// The product's name, which becomes the decklist's title and filename
+	productTitleSelector = `h1[class="product-title"]`
+	// One card line per bullet point, eg "1x Sol Ring"
+	cardListSelector = `div[class="force-overflow"] ul li`
+	// The card lines as one paragraph split by <br>, on pages with no bullets
+	productInfoSelector = `div[id="collapse2"] div[class="force-overflow"] p[class="product-information"]`
+	// The gallery heading, ending in the image count, eg "Gallery (10)"
+	galleryTitleSelector = `h2[class="pdp_title"]`
+	// Links to the full-size gallery images, in card order
+	galleryImageSelector = `figure a`
+)
+
 // The Scryfall card search, which tests replace with canned results
 type searchFunc func(ctx context.Context, query string) ([]CardData, error)
 
@@ -686,7 +701,10 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 	}
 	var cardSet CardSet
 
-	title := doc.Find(`h1[class="product-title"]`).Text()
+	title := doc.Find(productTitleSelector).Text()
+	if strings.TrimSpace(title) == "" {
+		return nil, errors.New("no product title found")
+	}
 	cardSet.Filename, cardSet.Title = cleanTitle(title)
 
 	log.Println(cardSet.Title)
@@ -749,7 +767,7 @@ func fetchProductPage(ctx context.Context, link string) (*goquery.Document, erro
 func parseCardList(doc *goquery.Document, names *cardNames) []CardData {
 	var cards []CardData
 	var err error
-	doc.Find(`div[class="force-overflow"] ul li`).Each(func(_ int, s *goquery.Selection) {
+	doc.Find(cardListSelector).Each(func(_ int, s *goquery.Selection) {
 		line := s.Text()
 		cards, err = processLine(cards, line, names)
 		if err != nil {
@@ -759,7 +777,7 @@ func parseCardList(doc *goquery.Document, names *cardNames) []CardData {
 
 	if len(cards) == 0 {
 		// Fallback if there were no bullet points
-		productInfo, _ := doc.Find(`div[id="collapse2"] div[class="force-overflow"] p[class="product-information"]`).Html()
+		productInfo, _ := doc.Find(productInfoSelector).Html()
 		for _, line := range strings.Split(productInfo, "<br/>") {
 			cards, err = processLine(cards, line, names)
 			if err != nil {
@@ -831,7 +849,7 @@ func matchEdition(ctx context.Context, search searchFunc, headers []scryfallHead
 // Whether the gallery shows every card twice, front and back, which its
 // title reveals by counting twice as many images as there are cards
 func galleryFoldMode(doc *goquery.Document, cardCount int) bool {
-	galleryTitle := doc.Find(`h2[class="pdp_title"]`).Text()
+	galleryTitle := doc.Find(galleryTitleSelector).Text()
 	if !strings.Contains(galleryTitle, " (") {
 		return false
 	}
@@ -853,7 +871,7 @@ func ocrNumbers(ctx context.Context, search searchFunc, doc *goquery.Document, c
 
 	// Find numbers by pulling images and OCR numbers out
 	var searchErr error
-	doc.Find(`figure a`).EachWithBreak(func(i int, s *goquery.Selection) bool {
+	doc.Find(galleryImageSelector).EachWithBreak(func(i int, s *goquery.Selection) bool {
 		if foldMode {
 			i /= 2
 		}

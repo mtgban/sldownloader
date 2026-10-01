@@ -999,6 +999,8 @@ func TestScrapeProduct(t *testing.T) {
 		switch r.URL.Path {
 		case "/us/product/1254382":
 			fmt.Fprint(w, testProductPage)
+		case "/redesigned":
+			fmt.Fprint(w, `<h1 class="pdp-title">Lofi Girl</h1>`)
 		default:
 			fmt.Fprint(w, `<h1 class="product-title">Secret Lair x MSCHF: The Zeta Set</h1>`)
 		}
@@ -1024,6 +1026,11 @@ func TestScrapeProduct(t *testing.T) {
 
 	if _, err := scrapeProduct(context.Background(), nil, testNames, server.URL+"/us/product/1254424", false); err == nil || err.Error() != "no cards found" {
 		t.Errorf("expected no cards found, got %v", err)
+	}
+
+	// A page without the title the scraper expects has changed its markup
+	if _, err := scrapeProduct(context.Background(), nil, testNames, server.URL+"/redesigned", false); err == nil || err.Error() != "no product title found" {
+		t.Errorf("expected no product title found, got %v", err)
 	}
 }
 

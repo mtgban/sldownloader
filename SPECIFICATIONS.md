@@ -192,7 +192,9 @@ mode. `scrapeProduct` runs each step below through its own function:
 1. `GET` the product URL via `httpGet` (§3); a status outside 2xx fails
    the product with that status.
 2. Parse the HTML with `goquery`.
-3. Extract the title from `h1[class="product-title"]`.
+3. Extract the title from `h1[class="product-title"]` (`productTitleSelector`).
+   A page without one fails the product with `"no product title found"`:
+   its markup has changed.
 4. Run it through `cleanTitle` (§8) to get `(cardSet.Filename, cardSet.Title)`.
 
 ### 5.2 Card-line extraction

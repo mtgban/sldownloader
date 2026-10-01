@@ -17,7 +17,10 @@ import (
 )
 
 const scryfallURL = "https://scryfall.com/sets/sld"
-const titleClass = ".card-grid-header-content"
+
+// Each Secret Lair edition's heading on scryfall.com/sets/sld, holding its
+// title and a link to the search for its cards
+const editionHeaderSelector = ".card-grid-header-content"
 
 // Scryfall allows 2 requests per second on /cards/search, which every search
 // uses; the only other call is the card-name catalog, once per run
@@ -78,7 +81,7 @@ func loadScryfallHeaders(ctx context.Context) ([]scryfallHeader, error) {
 // Read each edition's title and search link off the Secret Lair set page
 func parseEditionHeaders(doc *goquery.Document) []scryfallHeader {
 	var headers []scryfallHeader
-	doc.Find(titleClass).Each(func(i int, s *goquery.Selection) {
+	doc.Find(editionHeaderSelector).Each(func(i int, s *goquery.Selection) {
 		title := s.Text()
 		title = strings.Split(title, "•")[0]
 		title = strings.TrimSpace(title)
