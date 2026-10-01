@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -170,6 +171,26 @@ func TestSortCardsByNumber(t *testing.T) {
 			t.Errorf("cards[%d].Name = %q, want %q", i, cards[i].Name, name)
 		}
 	}
+
+	// A short or already ordered input comes out the same from an unstable
+	// sort too; unnumbered cards interleaved with numbered ones in reverse
+	// order is an input sort.Slice reorders, so this fails without
+	// SliceStable
+	cards = nil
+	for i := range 10 {
+		cards = append(cards,
+			CardData{Name: fmt.Sprint("unnumbered ", i)},
+			CardData{Name: fmt.Sprint("numbered ", i), Number: fmt.Sprint(900 - i)})
+	}
+	sortCardsByNumber(cards)
+	for i := range 10 {
+		if want := fmt.Sprint("unnumbered ", i); cards[i].Name != want {
+			t.Errorf("cards[%d].Name = %q, want %q", i, cards[i].Name, want)
+		}
+		if want := fmt.Sprint("numbered ", 9-i); cards[10+i].Name != want {
+			t.Errorf("cards[%d].Name = %q, want %q", 10+i, cards[10+i].Name, want)
+		}
+	}
 }
 
 func TestInheritFinish(t *testing.T) {
@@ -204,6 +225,24 @@ func TestInheritFinish(t *testing.T) {
 			t.Errorf("expected every replacement card to have Count 1, got %+v", card)
 		}
 	}
+
+	// The scraped name only matches ignoring punctuation, which is enough
+	// to inherit its finish
+	got = inheritFinish(
+		[]CardData{{Name: "Sol Ring"}, {Name: "Dosan, the Falling Leaf", Foil: true}},
+		[]CardData{{Name: "Dosan the Falling Leaf", Number: "2404"}})
+	if !got[0].Foil {
+		t.Errorf("expected the punctuation-only match to inherit its foil finish, got %+v", got[0])
+	}
+
+	// Nothing to replace, or nothing scraped to inherit from
+	if got := inheritFinish(scraped, nil); len(got) != 0 {
+		t.Errorf("expected no cards from no results, got %+v", got)
+	}
+	got = inheritFinish(nil, []CardData{{Name: "Sol Ring", Number: "100"}})
+	if len(got) != 1 || got[0].Foil || got[0].Etched || got[0].Count != 1 {
+		t.Errorf("expected a nonfoil single card with nothing scraped, got %+v", got)
+	}
 }
 
 func TestCollectorNumberValue(t *testing.T) {
@@ -215,6 +254,10 @@ func TestCollectorNumberValue(t *testing.T) {
 		{"689", 689},
 		{"1005", 1005},
 		{"119a", 119},
+		// A foil-only star suffix, and a number that does not start with a
+		// digit, which sorts with the unnumbered cards
+		{"123★", 123},
+		{"A1", 0},
 	}
 
 	for _, tt := range tests {

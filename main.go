@@ -562,7 +562,10 @@ func canonicalName(results []CardData, name string) string {
 // back to that default when no scraped card matches at all.
 func inheritFinish(scraped []CardData, results []CardData) []CardData {
 	for i := range results {
-		foil, etched := scraped[0].Foil, scraped[0].Etched
+		var foil, etched bool
+		if len(scraped) > 0 {
+			foil, etched = scraped[0].Foil, scraped[0].Etched
+		}
 		for _, orig := range scraped {
 			if normalizeCardName(orig.Name) == normalizeCardName(results[i].Name) {
 				foil, etched = orig.Foil, orig.Etched
