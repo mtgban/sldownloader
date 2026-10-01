@@ -12,6 +12,16 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 )
 
+// A few real card names, standing in for Scryfall's catalog
+var testNames = newCardNames([]string{
+	"Nyx Lotus", "Expedition Map", "Brainstorm", "Sol Ring", "Foil",
+	"Etched Champion", "Etched Host Doombringer", "Lavinia, Foil to Conspiracy",
+	"Phyrexian Tower", "Phyrexian Altar", "Vorinclex, Voice of Hunger",
+	"Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun", "Triumph of the Hordes",
+	"Isshin, Two Heavens as One", "Fight as One", "B.F.M. (Big Furry Monster)",
+	"SP//dr, Piloted by Peni", "Finally! Left-Handed Magic Cards",
+})
+
 func TestCleanLine(t *testing.T) {
 	tests := []struct {
 		line  string
@@ -38,10 +48,26 @@ func TestCleanLine(t *testing.T) {
 		{"1x Triumph of Hordes", "Triumph of the Hordes", 1, detectedTags{}},
 		// Non-breaking spaces are normalized away
 		{"1x\u00a0Sol Ring", "Sol Ring", 1, detectedTags{}},
+		// No cut reaches into a real card name: Phyrexian, " as ",
+		// parentheses, slashes and tag words that are part of the name stay
+		{"1x Phyrexian Altar", "Phyrexian Altar", 1, detectedTags{}},
+		{"1x Showcase Phyrexian Altar (Retro Frame)", "Phyrexian Altar", 1, detectedTags{}},
+		{"1x Isshin, Two Heavens as One", "Isshin, Two Heavens as One", 1, detectedTags{}},
+		{"1x Fight as One", "Fight as One", 1, detectedTags{}},
+		{"1x B.F.M. (Big Furry Monster)", "B.F.M. (Big Furry Monster)", 1, detectedTags{}},
+		{"1x SP//dr, Piloted by Peni", "SP//dr, Piloted by Peni", 1, detectedTags{}},
+		{"1x Finally! Left-Handed Magic Cards", "Finally! Left-Handed Magic Cards", 1, detectedTags{}},
+		{"1x Borderless Etched Champion", "Etched Champion", 1, detectedTags{}},
+		{"1x Etched Host Doombringer", "Etched Host Doombringer", 1, detectedTags{}},
+		{"1x Foil", "Foil", 1, detectedTags{}},
+		// ...while the same text outside the name is still cut
+		{"1x Foil Lavinia, Foil to Conspiracy", "Lavinia, Foil to Conspiracy", 1, detectedTags{Foil: true}},
+		{"1x Sol Ring as The One Ring", "Sol Ring", 1, detectedTags{}},
+		{"1x Etched Sol Ring", "Sol Ring", 1, detectedTags{Etched: true}},
 	}
 
 	for _, tt := range tests {
-		name, count, tags, err := cleanLine(tt.line)
+		name, count, tags, err := cleanLine(tt.line, testNames)
 		if err != nil {
 			t.Errorf("cleanLine(%q) returned error: %v", tt.line, err)
 			continue
@@ -60,7 +86,7 @@ func TestCleanLineErrors(t *testing.T) {
 		"no count here",
 		"Includes the following",
 	} {
-		_, _, _, err := cleanLine(line)
+		_, _, _, err := cleanLine(line, testNames)
 		if err == nil {
 			t.Errorf("cleanLine(%q) expected an error", line)
 		}
@@ -75,7 +101,7 @@ func TestProcessLineMerge(t *testing.T) {
 		"2x Sol Ring",
 		"1x Foil Sol Ring",
 	} {
-		cards, err = processLine(cards, line)
+		cards, err = processLine(cards, line, testNames)
 		if err != nil {
 			t.Fatalf("processLine(%q) returned error: %v", line, err)
 		}
@@ -110,7 +136,7 @@ func TestProcessLineFinishDetection(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		cards, err := processLine(nil, tt.line)
+		cards, err := processLine(nil, tt.line, testNames)
 		if err != nil {
 			t.Fatalf("processLine(%q) returned error: %v", tt.line, err)
 		}

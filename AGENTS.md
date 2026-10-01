@@ -109,7 +109,7 @@ the Scryfall rate limiter (8 req/s, see §4).
 | File | Contents |
 |---|---|
 | [main.go](main.go) | Everything except the Scryfall client: CLI entrypoint (`run`/`main`), Scalefast catalog API client, product-page scraping (`scrapeProduct`), all the name/title cleaning heuristics (`cleanLine`, `cleanTitle`, `nameTags`), OCR (`getNumberFromLink`, `extractNumber`), collector-number backfill, and file output (`dumpCards`). |
-| [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchURI`). |
+| [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the card-name catalog that protects real names from `cleanLine` (`loadCardNames`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchURI`). |
 | [main_test.go](main_test.go) | Table-driven tests for the pure string-processing functions (`cleanLine`, `cleanTitle`, `collectorNumberValue`, `normalizeCardName`, `canonicalName`, `matchCardNumbers`, `extractNumber`) and for `processLine`'s duplicate-merging behavior. Nothing that touches the network is tested — `scrapeProduct`, `search`, `getProducts`, `getNumberFromLink` have no test coverage (see [todo/004](todo/004-golden-file-regression-tests-for-scraping.md)). |
 | [.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml) | The daily automation: build the tool, run it against a page range remembered in a GitHub Actions repo variable (`SLD_LAST_PAGE`), diff the output against a fork of `taw/magic-preconstructed-decks`, push a branch, open a PR upstream. Runs no tests itself. |
 | [.github/workflows/test.yml](.github/workflows/test.yml) | `go build`, `go vet` and `go test -race` on every pull request and every push to `master`. Kept separate from the daily sync workflow so that pull request code never runs in a job holding its tokens. |
@@ -172,12 +172,15 @@ already fixed and **must stay fixed**:
   names that happen to contain a tag substring (e.g. stripping "Edition"
   naively would corrupt "Expedition Map"; stripping "Etched" naively would
   corrupt "Etched Champion").
-- A short allow-list (`keepEtched`, `keepFoil` in `cleanLine`) exists
-  specifically for real card names that are themselves built from a tag word
-  ("Etched Champion", "Lavinia, Foil to Conspiracy", the card literally named
-  "Foil"). If you add a new tag to `nameTags`, **check it against this list
-  and against a live Scryfall name search** for collisions before shipping —
-  see the workflow in §6.
+- No cut in `cleanLine` may remove text inside a real card name. Each one
+  (parentheses, the Foil prefix, Phyrexian, every tag, `" as "`,
+  `" with art"`, `//`) goes through `cardNames.matches`, which skips any
+  match inside a name from Scryfall's card-name catalog, loaded once per
+  run. That is what keeps "Phyrexian Altar", "Isshin, Two Heavens as One"
+  and "Etched Champion" intact without a per-card exception list. A new
+  cut must go through `cardNames.matches` as well (and be added to the
+  `cuts` in `newCardNames`), with a `TestCleanLine` case for a real name it
+  could break; a new `nameTags` entry is covered automatically.
 - All unicode whitespace is normalized to a plain space in one early pass
   (`normalizeSpaces`) *before* any string replacer runs. `strings.NewReplacer`
   is single-pass and never rescans its own output, so a replacer-based
