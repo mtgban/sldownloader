@@ -647,14 +647,11 @@ func matchCardNumbers(cards, results []CardData) {
 	}
 }
 
-func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNames, link string, doOCR bool) (*CardSet, error) {
-	resp, err := newRetryClient().Get(link)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+// The Scryfall card search, which tests replace with canned results
+type searchFunc func(ctx context.Context, query string) ([]CardData, error)
 
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNames, link string, doOCR bool) (*CardSet, error) {
+	doc, err := fetchProductPage(link)
 	if err != nil {
 		return nil, err
 	}
@@ -665,7 +662,64 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 
 	log.Println(cardSet.Title)
 
+	cards := parseCardList(doc, names)
+	if len(cards) == 0 {
+		return nil, errors.New("no cards found")
+	}
+
+	match, err := matchEdition(ctx, search, headers, cardSet.Title, cards)
+	if err != nil {
+		return nil, err
+	}
+	cards = match.cards
+	if !match.matched {
+		doOCR = true
+	}
+
+	sortCardsByNumber(cards)
+
+	cardSet.Cards = cards
+
+	// Queries Scryfall rejected as malformed, by card; a rejected edition
+	// search counts against every card, since it would have numbered them all
+	rejected := make([]error, len(cards))
+	if !match.matched {
+		for i := range rejected {
+			rejected[i] = match.rejected
+		}
+	}
+
+	if doOCR {
+		if err := ocrNumbers(ctx, search, doc, cards, rejected); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := backfillNumbers(ctx, search, cards, rejected); err != nil {
+		return nil, err
+	}
+
+	if err := rejectedQueryErr(cards, rejected); err != nil {
+		return nil, err
+	}
+	return &cardSet, nil
+}
+
+func fetchProductPage(link string) (*goquery.Document, error) {
+	resp, err := newRetryClient().Get(link)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	return goquery.NewDocumentFromReader(resp.Body)
+}
+
+// Read the card list off a product page: its bullet points, or the lines of
+// its product information paragraph when there are none
+func parseCardList(doc *goquery.Document, names *cardNames) []CardData {
 	var cards []CardData
+	var err error
 	doc.Find(`div[class="force-overflow"] ul li`).Each(func(_ int, s *goquery.Selection) {
 		line := s.Text()
 		cards, err = processLine(cards, line, names)
@@ -684,33 +738,45 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 			}
 		}
 	}
+	return cards
+}
 
-	if len(cards) == 0 {
-		return nil, errors.New("no cards found")
-	}
+// The outcome of matching a product against Scryfall's Secret Lair editions
+type editionMatch struct {
+	cards []CardData
+	// Whether an edition matched and numbered the cards
+	matched bool
+	// An edition search Scryfall rejected as malformed, if any
+	rejected error
+}
 
-	foundMatch := false
-	var headerErr error
-	cleanTitle := cardSet.Title
-	cleanTitle = strings.ReplaceAll(cleanTitle, " Foil Edition", "")
-	cleanTitle = strings.ReplaceAll(cleanTitle, " Raised", "")
-	cleanTitle = strings.ReplaceAll(cleanTitle, " Galaxy", "")
+// Number the cards from the first Scryfall edition whose title matches the
+// product's and whose search returns cards: aligned by name when the counts
+// agree, replaced by Scryfall's list when they do not. A search Scryfall
+// rejects as malformed moves on to the next edition; any other Scryfall
+// error fails the product
+func matchEdition(ctx context.Context, search searchFunc, headers []scryfallHeader, title string, cards []CardData) (editionMatch, error) {
+	match := editionMatch{cards: cards}
+	matchTitle := title
+	matchTitle = strings.ReplaceAll(matchTitle, " Foil Edition", "")
+	matchTitle = strings.ReplaceAll(matchTitle, " Raised", "")
+	matchTitle = strings.ReplaceAll(matchTitle, " Galaxy", "")
 
 	for _, header := range headers {
-		a := strings.ToLower(cleanTitle)
+		a := strings.ToLower(matchTitle)
 		b := strings.ToLower(header.Title)
 		if !fuzzy.Match(a, b) && !strings.Contains(a, b) && !strings.Contains(b, a) {
 			continue
 		}
 
-		results, err := searchURI(ctx, header.URI)
+		results, err := searchURI(ctx, search, header.URI)
 		if isScryfallError(err, "bad_request") {
 			log.Println(err)
-			headerErr = err
+			match.rejected = err
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return match, err
 		}
 		if len(results) == 0 {
 			log.Println("empty result set from Scryfall, ignoring")
@@ -718,161 +784,154 @@ func scrapeProduct(ctx context.Context, headers []scryfallHeader, names *cardNam
 		}
 
 		log.Printf("Found these possible card numbers: %+v", results)
-		if len(results) != len(cards) {
+		if len(results) != len(match.cards) {
 			log.Println("... but the contents differ, we trust Scryfall...")
-			cards = inheritFinish(cards, results)
+			match.cards = inheritFinish(match.cards, results)
 		} else {
-			matchCardNumbers(cards, results)
+			matchCardNumbers(match.cards, results)
 		}
-		foundMatch = true
+		match.matched = true
 		break
 	}
-	if !foundMatch {
-		log.Println(cleanTitle, "was not found, will try OCR")
-		doOCR = true
+	if !match.matched {
+		log.Println(matchTitle, "was not found, will try OCR")
 	}
+	return match, nil
+}
 
-	sortCardsByNumber(cards)
-
-	cardSet.Cards = cards
-
-	// Queries Scryfall rejected as malformed, by card; a rejected edition
-	// search counts against every card, since it would have numbered them all
-	rejected := make([]error, len(cards))
-	if !foundMatch {
-		for i := range rejected {
-			rejected[i] = headerErr
-		}
+// Whether the gallery shows every card twice, front and back, which its
+// title reveals by counting twice as many images as there are cards
+func galleryFoldMode(doc *goquery.Document, cardCount int) bool {
+	galleryTitle := doc.Find(`h2[class="pdp_title"]`).Text()
+	if !strings.Contains(galleryTitle, " (") {
+		return false
 	}
+	fields := strings.Fields(galleryTitle)
+	expectedNum := fields[len(fields)-1]
+	expectedNum = strings.TrimLeft(expectedNum, "(")
+	expectedNum = strings.TrimRight(expectedNum, ")")
+	expectedNumber, _ := strconv.Atoi(expectedNum)
+	return expectedNumber/2 == cardCount
+}
 
-	if doOCR {
-		// Sometimes pages have twice as many images because they are front and back,
-		// but we're interested in only the front to grab the number, so set a flag
-		// that makes the later chunk skip duplicated images
-		foldMode := false
-		galleryTitle := doc.Find(`h2[class="pdp_title"]`).Text()
-		if strings.Contains(galleryTitle, " (") {
-			fields := strings.Fields(galleryTitle)
-			expectedNum := fields[len(fields)-1]
-			expectedNum = strings.TrimLeft(expectedNum, "(")
-			expectedNum = strings.TrimRight(expectedNum, ")")
-			expectedNumber, _ := strconv.Atoi(expectedNum)
-			if expectedNumber/2 == len(cards) {
-				foldMode = true
-			}
+// Number the cards still missing one by OCR of the gallery images, which
+// line up with the cards in page order, validating each number on Scryfall
+func ocrNumbers(ctx context.Context, search searchFunc, doc *goquery.Document, cards []CardData, rejected []error) error {
+	// Sometimes pages have twice as many images because they are front and back,
+	// but we're interested in only the front to grab the number, so set a flag
+	// that makes the later chunk skip duplicated images
+	foldMode := galleryFoldMode(doc, len(cards))
+
+	// Find numbers by pulling images and OCR numbers out
+	var searchErr error
+	doc.Find(`figure a`).EachWithBreak(func(i int, s *goquery.Selection) bool {
+		if foldMode {
+			i /= 2
+		}
+		if i >= len(cards) {
+			log.Println("Found more images than loaded cards, something may be off")
+			return false
 		}
 
-		// Find numbers by pulling images and OCR numbers out
-		var searchErr error
-		doc.Find(`figure a`).EachWithBreak(func(i int, s *goquery.Selection) bool {
-			if foldMode {
-				i = i / 2
-			}
-			if i >= len(cards) {
-				log.Println("Found more images than loaded cards, something may be off")
-				return false
-			}
-
-			if cards[i].Number != "" {
-				return true
-			}
-
-			imgLink, found := s.Attr("href")
-			if !found {
-				return true
-			}
-			if strings.HasPrefix(imgLink, "/") {
-				imgLink = "https://secretlair.wizards.com" + imgLink
-			}
-
-			num, err := getNumberFromLink(imgLink)
-			if err != nil {
-				log.Println(imgLink, err)
-				return true
-			}
-
-			res, err := search(ctx, fmt.Sprintf("%s cn:%s", cards[i].Name, num))
-			if isScryfallError(err, "bad_request") {
-				log.Println("validation failed:", err)
-				rejected[i] = err
-				return true
-			}
-			if err != nil {
-				searchErr = err
-				return false
-			}
-			if len(res) == 0 {
-				log.Printf("validation failed: no %s numbered %q", cards[i].Name, num)
-				return true
-			}
-
-			cards[i].Name = canonicalName(res, cards[i].Name)
-			cards[i].Number = num
+		if cards[i].Number != "" {
 			return true
-		})
-		if searchErr != nil {
-			return nil, searchErr
 		}
-	}
 
-	// Validate numbers and backfill if needed
+		imgLink, found := s.Attr("href")
+		if !found {
+			return true
+		}
+		if strings.HasPrefix(imgLink, "/") {
+			imgLink = "https://secretlair.wizards.com" + imgLink
+		}
+
+		num, err := getNumberFromLink(imgLink)
+		if err != nil {
+			log.Println(imgLink, err)
+			return true
+		}
+
+		res, err := search(ctx, fmt.Sprintf("%s cn:%s", cards[i].Name, num))
+		if isScryfallError(err, "bad_request") {
+			log.Println("validation failed:", err)
+			rejected[i] = err
+			return true
+		}
+		if err != nil {
+			searchErr = err
+			return false
+		}
+		if len(res) == 0 {
+			log.Printf("validation failed: no %s numbered %q", cards[i].Name, num)
+			return true
+		}
+
+		cards[i].Name = canonicalName(res, cards[i].Name)
+		cards[i].Number = num
+		return true
+	})
+	return searchErr
+}
+
+// Number the cards still missing one by assuming the collector numbers run
+// on from the card with the longest number, in card order, validating each
+// guess on Scryfall
+func backfillNumbers(ctx context.Context, search searchFunc, cards []CardData, rejected []error) error {
 	foundNum := 0
 	for _, card := range cards {
 		if card.Number != "" {
 			foundNum++
 		}
 	}
-	if foundNum != len(cards) {
-		log.Println("Couldn't parse all images, trying to backfill...")
+	if foundNum == len(cards) {
+		return nil
+	}
+	log.Println("Couldn't parse all images, trying to backfill...")
 
-		// Find the longest number among those founds and the position
-		num := ""
-		pos := -1
-		for i, card := range cards {
-			if card.Number != "" {
-				if len(card.Number) > len(num) {
-					num = card.Number
-					pos = i
-				}
+	// Find the longest number among those founds and the position
+	num := ""
+	pos := -1
+	for i, card := range cards {
+		if card.Number != "" {
+			if len(card.Number) > len(num) {
+				num = card.Number
+				pos = i
 			}
-		}
-
-		// If we found something derive the number for the others
-		if num != "" {
-			cn, _ := strconv.Atoi(strings.TrimLeft(num, "0"))
-			if cn > 0 {
-				for j := range cards {
-					if cards[j].Number != "" {
-						continue
-					}
-					num = fmt.Sprint(cn + j - pos)
-
-					res, err := search(ctx, fmt.Sprintf("%s cn:%s", cards[j].Name, num))
-					if isScryfallError(err, "bad_request") {
-						log.Println("validation failed:", err)
-						rejected[j] = err
-						continue
-					}
-					if err != nil {
-						return nil, err
-					}
-					if len(res) == 0 {
-						log.Printf("validation failed: no %s numbered %q", cards[j].Name, num)
-						continue
-					}
-					cards[j].Name = canonicalName(res, cards[j].Name)
-					cards[j].Number = num
-				}
-			}
-		} else {
-			log.Println("...worth a shot")
 		}
 	}
 
-	if err := rejectedQueryErr(cards, rejected); err != nil {
-		return nil, err
+	// If we found something derive the number for the others
+	if num == "" {
+		log.Println("...worth a shot")
+		return nil
 	}
-	return &cardSet, nil
+	cn, _ := strconv.Atoi(strings.TrimLeft(num, "0"))
+	if cn <= 0 {
+		return nil
+	}
+	for j := range cards {
+		if cards[j].Number != "" {
+			continue
+		}
+		num = fmt.Sprint(cn + j - pos)
+
+		res, err := search(ctx, fmt.Sprintf("%s cn:%s", cards[j].Name, num))
+		if isScryfallError(err, "bad_request") {
+			log.Println("validation failed:", err)
+			rejected[j] = err
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if len(res) == 0 {
+			log.Printf("validation failed: no %s numbered %q", cards[j].Name, num)
+			continue
+		}
+		cards[j].Name = canonicalName(res, cards[j].Name)
+		cards[j].Number = num
+	}
+	return nil
 }
 
 // A query Scryfall rejected as malformed fails the product only when the

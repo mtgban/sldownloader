@@ -172,7 +172,12 @@ before it opens a PR or moves `SLD_LAST_PAGE`.
 ## 5. Product-page scraping and matching (`scrapeProduct`)
 
 Applies identically whether reached via catalog-crawl mode or explicit-URL
-mode.
+mode. `scrapeProduct` runs each step below through its own function:
+`fetchProductPage` (§5.1), `parseCardList` (§5.2), `matchEdition` (§5.3),
+`sortCardsByNumber` (§5.4), `ocrNumbers` (§5.5, with `galleryFoldMode`) and
+`backfillNumbers` (§5.6). `matchEdition`, `ocrNumbers` and
+`backfillNumbers` take the Scryfall search as a parameter (`searchFunc`);
+`scrapeProduct` passes `search` (§9.3), and tests pass canned results.
 
 ### 5.1 Fetch and title extraction
 
@@ -196,17 +201,14 @@ mode.
 
 ### 5.3 Edition matching against Scryfall
 
-A **local, shadowing** variable named `cleanTitle` (not to be confused with
-the package-level `cleanTitle` function of the same name — this is a
-naming choice worth being careful with when editing this function) is
-derived from `cardSet.Title` by stripping the literal suffixes
+`matchTitle` is derived from `cardSet.Title` by stripping the literal suffixes
 `" Foil Edition"`, `" Raised"`, and `" Galaxy"` — this stripped form is
 used *only* for matching against Scryfall edition titles, never for output.
 
 For each `(Title, URI)` header scraped from `scryfall.com/sets/sld` (§10),
 in scrape/DOM order:
 
-1. **Match test**: lowercase both the local `cleanTitle` and `header.Title`;
+1. **Match test**: lowercase both `matchTitle` and `header.Title`;
    match if `fuzzy.Match(a, b)` (subsequence fuzzy match, from
    `lithammer/fuzzysearch`) **or** either string contains the other as a
    substring. The **first** header satisfying this wins — there is no
@@ -758,10 +760,11 @@ is a real, silent truncation risk if ever queried against something
 larger. See
 [todo/003-scryfall-search-pagination.md](todo/003-scryfall-search-pagination.md).
 
-### 9.4 `searchURI(ctx, uri) ([]CardData, error)`
+### 9.4 `searchURI(ctx, search, uri) ([]CardData, error)`
 
 Parses the `uri` (one of the prebuilt search URIs from §9.1), extracts its
-`q` query parameter, and calls `search` with that exact query string —
+`q` query parameter, and calls the given `search` (§9.3, or a test's
+canned results) with that exact query string —
 i.e., this re-executes precisely the search Scryfall's own site would run
 for that edition's "view all prints" link, guaranteeing the same
 inclusion/exclusion semantics.

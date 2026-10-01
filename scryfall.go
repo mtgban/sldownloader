@@ -107,7 +107,7 @@ func loadCardNames(ctx context.Context) (*cardNames, error) {
 }
 
 // Make a search call rebuilding the query used in the headers
-func searchURI(ctx context.Context, uri string) ([]CardData, error) {
+func searchURI(ctx context.Context, search searchFunc, uri string) ([]CardData, error) {
 	u, err := url.Parse(uri)
 	if err != nil {
 		return nil, err
