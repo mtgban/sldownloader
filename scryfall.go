@@ -127,12 +127,43 @@ func isScryfallError(err error, code string) bool {
 	return errors.As(err, &scryfallErr) && scryfallErr.Code == code
 }
 
+// Search results by query, kept for the whole run: a Foil Edition and its
+// nonfoil twin repeat the same searches, and each costs half a second of
+// Scryfall's search budget
+type searchCache struct {
+	mu      sync.Mutex
+	results map[string][]CardData
+}
+
+var scryfallSearchCache = &searchCache{results: map[string][]CardData{}}
+
+// Answer query from the cache, or from Scryfall and keep the answer, "no
+// such card" included; an error is never kept. Callers may modify the cards
+// they get back
+func (c *searchCache) search(ctx context.Context, client *scryfall.Client, query string) ([]CardData, error) {
+	c.mu.Lock()
+	cards, found := c.results[query]
+	c.mu.Unlock()
+	if found {
+		return slices.Clone(cards), nil
+	}
+
+	cards, err := searchWithClient(ctx, client, query)
+	if err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	c.results[query] = slices.Clone(cards)
+	c.mu.Unlock()
+	return cards, nil
+}
+
 func search(ctx context.Context, query string) ([]CardData, error) {
 	client, err := getScryfallClient()
 	if err != nil {
 		return nil, err
 	}
-	return searchWithClient(ctx, client, query)
+	return scryfallSearchCache.search(ctx, client, query)
 }
 
 // A query that matches no card returns no cards and no error. Anything else
