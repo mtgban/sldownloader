@@ -134,7 +134,7 @@ obvious; the history is full of one-line fixes for one specific drop.
 
 ### 4.1 The matching pipeline (high level — full detail in SPECIFICATIONS.md)
 
-1. Scrape the product page's bullet list (or a fallback `<p>` block) into
+1. Scrape the product page's bullet list into
    raw `CardData` entries via `cleanLine` (name + count only, no number yet).
 2. Fuzzy-match the product title against the list of Secret Lair edition
    titles scraped from `scryfall.com/sets/sld`, then pull that edition's
@@ -252,8 +252,7 @@ full before each retry, turning one bad page into a four-hour stall.
 
 Every selector the scraper uses is a named, commented constant: the
 Wizards product page's in main.go (`productTitleSelector`,
-`cardListSelector`, `productInfoSelector`, `galleryTitleSelector`,
-`galleryImageSelector`) and the scryfall.com set page's in scryfall.go
+`cardListSelector`, `galleryTitleSelector`, `galleryImageSelector`) and the scryfall.com set page's in scryfall.go
 (`editionHeaderSelector`). A redesign of either site breaks these first.
 It shows up as `FAILED ... no product title found` or `no cards found`
 across many products in the daily run's PR body or job summary, or as the
