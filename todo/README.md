@@ -17,7 +17,6 @@ specific items where the behavior they describe is the direct cause.
 | [003](003-scryfall-search-pagination.md) | Scryfall search results are not paginated | Silent truncation risk if ever queried against a large result set |
 | [006](006-structured-logging.md) | Logging is unlevelled `log.Println`/`Printf` calls throughout | No way to quiet routine output or get machine-parseable diagnostics |
 | [007](007-context-cancellation-on-signal.md) | `context.Background()` is never cancelled | A `-page` crawl can't be interrupted cleanly mid-request |
-| [009](009-dedupe-scryfall-lookups-per-product.md) | Repeated identical Scryfall queries aren't cached within a run | Wastes rate-limit headroom during long catalog crawls |
 
 ## Performance
 

@@ -210,7 +210,9 @@ Scryfall's [rate limits](https://scryfall.com/docs/api/rate-limits) allow
 `/cards/search` **2 requests/second** (10/s for most other endpoints), and
 every `search`/`searchURI` call is a `/cards/search`. Exceeding that gets a
 `rate_limited` answer and a lockout of 30–60 seconds, and, per Scryfall's
-own warning text, risks a network block. `getScryfallClient` (scryfall.go)
+own warning text, risks a network block. `search` answers a query it has
+already sent in this run from memory (`searchCache`), since a Foil Edition
+and its nonfoil twin send the same ones. `getScryfallClient` (scryfall.go)
 enforces **2 req/s** via a single shared, lazily-initialized
 `*scryfall.Client` (`sync.Once`). This sharing is
 load-bearing: the underlying `go-scryfall` rate limiter lives on the client
@@ -281,7 +283,8 @@ code safely*:
   duplicate foil-only collector numbers — these exclusions are deliberate,
   not incidental (bonus cards are tracked by a separate mechanism upstream).
 
-There is no persistence, cache, or database. Every run is stateless except
+There is no persistence or database, and the only cache is Scryfall search
+results kept in memory for one run (`searchCache`). Every run is stateless except
 for the `-page` counter, which in CI is round-tripped through a GitHub
 Actions repo variable (`SLD_LAST_PAGE`) — see workflow file §3 above and
 SPECIFICATIONS.md §4.2 for the exact contract of what the tool prints

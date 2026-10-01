@@ -1079,3 +1079,45 @@ func TestParseEditionHeaders(t *testing.T) {
 		t.Errorf("expected no editions, got %+v", headers)
 	}
 }
+
+func TestSearchCache(t *testing.T) {
+	client, requests := scriptedScryfall(t, replyCard, replyNotFound, replyOutage, replyCard)
+	cache := &searchCache{results: map[string][]CardData{}}
+	ctx := context.Background()
+	solRing := []CardData{{Name: "Sol Ring", Number: "2822"}}
+
+	// A repeated query is answered from the cache, and what a caller does
+	// to its copy does not reach the cache (matchCardNumbers clears numbers)
+	got, err := cache.search(ctx, client, "Sol Ring cn:2822")
+	if err != nil || !slices.Equal(got, solRing) {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	for range 2 {
+		got[0].Number = ""
+		got, err = cache.search(ctx, client, "Sol Ring cn:2822")
+		if err != nil || !slices.Equal(got, solRing) || requests.Load() != 1 {
+			t.Errorf("repeat: got %+v, %v after %d requests, want %+v after 1", got, err, requests.Load(), solRing)
+		}
+	}
+
+	// "No such card" is an answer too
+	for range 2 {
+		if got, err := cache.search(ctx, client, "Fog cn:2822"); got != nil || err != nil {
+			t.Errorf("no such card: got %+v, %v", got, err)
+		}
+	}
+	if n := requests.Load(); n != 2 {
+		t.Errorf("made %d requests, want 2", n)
+	}
+
+	// An error is not kept, so the next try asks again
+	if _, err := cache.search(ctx, client, "Island cn:2823"); err == nil {
+		t.Error("expected the outage to be an error")
+	}
+	if got, err := cache.search(ctx, client, "Island cn:2823"); err != nil || len(got) != 1 {
+		t.Errorf("retry after an error: got %+v, %v", got, err)
+	}
+	if n := requests.Load(); n != 4 {
+		t.Errorf("made %d requests, want 4", n)
+	}
+}

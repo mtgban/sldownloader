@@ -720,7 +720,14 @@ network block if ignored. How `search` handles one is in §9.3.
 
 ### 9.3 `search(ctx, query) ([]CardData, error)`
 
-Calls `Client.SearchCards` with `Unique: UniqueModePrints`,
+A query already answered in this run is answered again from memory
+(`searchCache`), without a request: a Foil Edition and its nonfoil twin
+send the same edition and validation searches. The answer kept includes
+"no such card"; an error is never kept, so the next try asks Scryfall
+again. Every caller gets its own copy, since `matchCardNumbers` and
+`inheritFinish` modify the results they are given.
+
+Otherwise it calls `Client.SearchCards` with `Unique: UniqueModePrints`,
 `Order: OrderSet`, `Dir: DirAsc` (ascending by collector number),
 `IncludeExtras: true`. For each returned card:
 - **Excluded**: cards whose `PromoTypes` includes `"sldbonus"` (Secret
