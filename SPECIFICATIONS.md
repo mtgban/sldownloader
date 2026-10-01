@@ -885,9 +885,14 @@ Transitive: `benbjohnson/clock` (ratelimit's clock), `andybalholm/cascadia`
 `golang.org/x/text`.
 
 Dependabot (`.github/dependabot.yml`) opens one grouped PR a week for Go
-module updates and one for GitHub Actions updates. The module keeps
-`go 1.25.0`; an update that needs a newer Go raises that line, which
-changes the toolchain CI installs (`go-version-file: go.mod`).
+module updates and one for GitHub Actions updates.
+
+`go.mod` sets `go 1.26.0`, the oldest Go that can build the module, and
+`toolchain go1.26.8`, the release CI builds with: `setup-go`
+(`go-version-file: go.mod`) installs the `toolchain` release when there is
+one. Locally, a newer installed Go builds the module as it is; an older
+one downloads go1.26.8 (`GOTOOLCHAIN=auto`). A dependency update that
+needs a newer Go raises the `go` line.
 
 ---
 
