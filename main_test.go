@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -1122,5 +1123,36 @@ func TestCrawlInterrupted(t *testing.T) {
 	want := []string{"interrupted: context canceled"}
 	if !slices.Equal(report.failures, want) || report.written != 0 || report.nextPage != 20 {
 		t.Errorf("crawl() = %+v, want failures %q, nothing written, next page 20", report, want)
+	}
+}
+
+func TestFormatVersion(t *testing.T) {
+	tests := []struct {
+		info    debug.BuildInfo
+		version string
+	}{
+		// A build from a checkout, whose version already names the commit
+		{debug.BuildInfo{Main: debug.Module{Version: "v0.0.0-20261001113826-4d78459cd2c3+dirty"}, Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "4d78459cd2c3e1f0a9b8c7d6e5f4a3b2c1d0e9f8"},
+			{Key: "vcs.modified", Value: "true"},
+		}}, "v0.0.0-20261001113826-4d78459cd2c3+dirty"},
+		// A build whose version does not, so the commit is added
+		{debug.BuildInfo{Main: debug.Module{Version: "(devel)"}, Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "4d78459ab12c34de56f7890123456789abcdef01"},
+			{Key: "vcs.modified", Value: "false"},
+		}}, "(devel) 4d78459ab12c"},
+		{debug.BuildInfo{Main: debug.Module{Version: "(devel)"}, Settings: []debug.BuildSetting{
+			{Key: "vcs.revision", Value: "4d78459ab12c34de56f7890123456789abcdef01"},
+			{Key: "vcs.modified", Value: "true"},
+		}}, "(devel) 4d78459ab12c+dirty"},
+		// go install github.com/mtgban/sldownloader@<version>
+		{debug.BuildInfo{Main: debug.Module{Version: "v0.0.0-20261001120000-4d78459ab12c"}}, "v0.0.0-20261001120000-4d78459ab12c"},
+		{debug.BuildInfo{}, "(unknown)"},
+	}
+
+	for _, tt := range tests {
+		if version := formatVersion(&tt.info); version != tt.version {
+			t.Errorf("formatVersion(%+v) = %q, want %q", tt.info, version, tt.version)
+		}
 	}
 }
