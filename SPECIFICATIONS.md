@@ -199,14 +199,10 @@ mode. `scrapeProduct` runs each step below through its own function:
 
 ### 5.2 Card-line extraction
 
-1. Primary path: every `li` inside `div[class="force-overflow"] ul` is
-   treated as one card line and passed to `processLine` (§9), which in turn
-   calls `cleanLine` (§8) on the raw text.
-2. Fallback path (only if the primary path produced zero cards): the HTML
-   of `div[id="collapse2"] div[class="force-overflow"] p[class="product-information"]`
-   is split on literal `<br/>` tags, and each resulting fragment is passed
-   through `processLine` the same way.
-3. If both paths produce zero cards, `scrapeProduct` returns the error
+1. Every `li` inside `div[class="force-overflow"] ul` (`cardListSelector`)
+   is treated as one card line and passed to `processLine` (§9), which in
+   turn calls `cleanLine` (§8) on the raw text.
+2. If that produces zero cards, `scrapeProduct` returns the error
    `"no cards found"` and the product is skipped entirely (no file written).
 
 ### 5.3 Edition matching against Scryfall

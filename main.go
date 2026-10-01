@@ -683,8 +683,6 @@ const (
 	productTitleSelector = `h1[class="product-title"]`
 	// One card line per bullet point, eg "1x Sol Ring"
 	cardListSelector = `div[class="force-overflow"] ul li`
-	// The card lines as one paragraph split by <br>, on pages with no bullets
-	productInfoSelector = `div[id="collapse2"] div[class="force-overflow"] p[class="product-information"]`
 	// The gallery heading, ending in the image count, eg "Gallery (10)"
 	galleryTitleSelector = `h2[class="pdp_title"]`
 	// Links to the full-size gallery images, in card order
@@ -762,8 +760,7 @@ func fetchProductPage(ctx context.Context, link string) (*goquery.Document, erro
 	return goquery.NewDocumentFromReader(resp.Body)
 }
 
-// Read the card list off a product page: its bullet points, or the lines of
-// its product information paragraph when there are none
+// Read the card list off a product page's bullet points
 func parseCardList(doc *goquery.Document, names *cardNames) []CardData {
 	var cards []CardData
 	var err error
@@ -774,17 +771,6 @@ func parseCardList(doc *goquery.Document, names *cardNames) []CardData {
 			log.Printf("%s - %s", line, err.Error())
 		}
 	})
-
-	if len(cards) == 0 {
-		// Fallback if there were no bullet points
-		productInfo, _ := doc.Find(productInfoSelector).Html()
-		for _, line := range strings.Split(productInfo, "<br/>") {
-			cards, err = processLine(cards, line, names)
-			if err != nil {
-				log.Printf("%s - %s", line, err.Error())
-			}
-		}
-	}
 	return cards
 }
 

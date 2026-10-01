@@ -792,16 +792,6 @@ func TestParseCardList(t *testing.T) {
 			},
 		},
 		{
-			name: "product information paragraph when there are no bullet points",
-			html: `<div id="collapse2"><div class="force-overflow">
-<p class="product-information">1x Counterspell<br>1x Phyrexian Altar<br></p>
-</div></div>`,
-			cards: []CardData{
-				{Name: "Counterspell", Count: 1},
-				{Name: "Phyrexian Altar", Count: 1},
-			},
-		},
-		{
 			name: "no card list at all",
 			html: `<h1 class="product-title">Secret Lair x MSCHF: The Zeta Set</h1><p>3 common cards</p>`,
 		},
