@@ -86,11 +86,13 @@ for the whole run:
 ```
 crawl(pageOpt):
   for page := pageOpt; ; page++:
+    if interrupted: record "interrupted" on this page, STOP
     resp, err := getProducts(page * 50)   # Scalefast API, 50 items/page
     if err: record a failure for "catalog page <page>", STOP
     if resp has zero products: STOP
     lastPage = page
     for each product in resp.Products:
+      if interrupted: record "interrupted" on this page, STOP
       if any of product.Descriptions[*].Title matches the skip list (§4.1):
         print `"<title>",<releaseDate>` to stdout, skip this product
         continue
@@ -103,8 +105,15 @@ crawl(pageOpt):
 print one "FAILED <failure>" line per failure    # see §4.2
 print "NEXT_PAGE=<nextPage>"
 exit 1 if nothing was written and something failed,
-       or there were no products at all; else 0  # see §7
+       or there were no products at all, or interrupted; else 0  # see §7
 ```
+
+"Interrupted" means SIGINT (Ctrl-C) or SIGTERM (a cancelled CI job):
+`run()`'s context is cancelled, any fetch or Scryfall wait in flight
+returns `context canceled` (failing that product), and the crawl stops at
+the next product with `FAILED interrupted: context canceled`, so
+`NEXT_PAGE` resumes on that page. A second signal kills the process
+outright. Explicit-URL mode stops at the next URL and exits `1`.
 
 The loop lives in `crawl`. Where the next run starts is decided by
 `crawlReport.resumePage`, a pure function of the start page, the last page
@@ -415,6 +424,7 @@ unnumbered (§6.1).
 | Catalog-crawl mode, no decklist written but nothing failed either, because every product found was on the skip list | `0` |
 | Catalog-crawl mode, no decklist written and something failed (every product that was not skipped failed, or the first catalog fetch failed) | `1` |
 | Catalog-crawl mode, no products at all from the start page on (start page past the end of the catalog) | `1` |
+| Either mode, interrupted by SIGINT or SIGTERM (§4) | `1` |
 
 ---
 
