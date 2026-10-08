@@ -2,7 +2,7 @@ module github.com/mtgban/sldownloader
 
 go 1.26.0
 
-toolchain go1.26.8
+toolchain go1.26.9
 
 require (
 	github.com/BlueMonday/go-scryfall v0.10.0
@@ -18,6 +18,6 @@ require (
 	github.com/benbjohnson/clock v1.3.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 )

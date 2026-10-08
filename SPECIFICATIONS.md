@@ -888,10 +888,10 @@ Dependabot (`.github/dependabot.yml`) opens one grouped PR a week for Go
 module updates and one for GitHub Actions updates.
 
 `go.mod` sets `go 1.26.0`, the oldest Go that can build the module, and
-`toolchain go1.26.8`, the release CI builds with: `setup-go`
+`toolchain go1.26.9`, the release CI builds with: `setup-go`
 (`go-version-file: go.mod`) installs the `toolchain` release when there is
 one. Locally, a newer installed Go builds the module as it is; an older
-one downloads go1.26.8 (`GOTOOLCHAIN=auto`). A dependency update that
+one downloads go1.26.9 (`GOTOOLCHAIN=auto`). A dependency update that
 needs a newer Go raises the `go` line.
 
 ---
