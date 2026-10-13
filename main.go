@@ -27,6 +27,9 @@ import (
 	"github.com/hashicorp/go-retryablehttp"
 	"github.com/lithammer/fuzzysearch/fuzzy"
 	"github.com/otiai10/gosseract/v2"
+	"golang.org/x/text/runes"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 )
 
 // Wizards can answer 503 with a Retry-After of an hour, which the default
@@ -806,8 +809,8 @@ func matchEdition(ctx context.Context, search searchFunc, headers []scryfallHead
 	matchTitle = strings.ReplaceAll(matchTitle, " Galaxy", "")
 
 	for _, header := range headers {
-		a := strings.ToLower(matchTitle)
-		b := strings.ToLower(header.Title)
+		a := foldTitle(matchTitle)
+		b := foldTitle(header.Title)
 		if !fuzzy.Match(a, b) && !strings.Contains(a, b) && !strings.Contains(b, a) {
 			continue
 		}
@@ -840,6 +843,16 @@ func matchEdition(ctx context.Context, search searchFunc, headers []scryfallHead
 		log.Println(matchTitle, "was not found, will try OCR")
 	}
 	return match, nil
+}
+
+// Lowercase a title and strip its accents, since Wizards and Scryfall do
+// not always spell a name the same way (eg "Véronique" and "Veronique")
+func foldTitle(title string) string {
+	folded, _, err := transform.String(transform.Chain(norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC), title)
+	if err != nil {
+		folded = title
+	}
+	return strings.ToLower(folded)
 }
 
 // Whether the gallery shows every card twice, front and back, which its
