@@ -222,8 +222,9 @@ used *only* for matching against Scryfall edition titles, never for output.
 For each `(Title, URI)` header scraped from `scryfall.com/sets/sld` (§9.1),
 in scrape/DOM order:
 
-1. **Match test**: lowercase both `matchTitle` and `header.Title`;
-   match if `fuzzy.Match(a, b)` (subsequence fuzzy match, from
+1. **Match test**: lowercase both `matchTitle` and `header.Title` and
+   strip their accents (`foldTitle`: Wizards titles a drop "Véronique
+   Meignaud" where Scryfall has "Veronique Meignaud"); match if `fuzzy.Match(a, b)` (subsequence fuzzy match, from
    `lithammer/fuzzysearch`) **or** either string contains the other as a
    substring. The **first** header satisfying this wins — there is no
    scoring or "best match" selection among multiple headers that could
@@ -878,11 +879,11 @@ this specific set's numbering.
 | `github.com/lithammer/fuzzysearch` | Subsequence fuzzy string matching, used to match a cleaned product title against Scryfall edition titles |
 | `github.com/otiai10/gosseract/v2` | cgo bindings to Tesseract OCR |
 | `go.uber.org/ratelimit` | Leaky-bucket rate limiter, used to cap the shared Scryfall client at 2 req/s with no burst slack |
+| `golang.org/x/text` | Unicode normalization, used to strip accents from titles before edition matching (`foldTitle`) |
 
 Transitive: `benbjohnson/clock` (ratelimit's clock), `andybalholm/cascadia`
 (goquery's CSS selector engine), `google/go-querystring`,
-`hashicorp/go-cleanhttp` (retryablehttp's transport), `golang.org/x/net`,
-`golang.org/x/text`.
+`hashicorp/go-cleanhttp` (retryablehttp's transport), `golang.org/x/net`.
 
 Dependabot (`.github/dependabot.yml`) opens one grouped PR a week for Go
 module updates and one for GitHub Actions updates.

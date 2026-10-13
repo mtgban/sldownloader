@@ -855,6 +855,7 @@ func TestMatchEdition(t *testing.T) {
 		{Title: "Pixel Pals", URI: "https://scryfall.com/search?q=pixel"},
 		{Title: "Lofi Girl: Beats to Cast To", URI: "https://scryfall.com/search?q=lofi"},
 		{Title: "Lofi Girl: Beats to Cast To", URI: "https://scryfall.com/search?q=lofi2"},
+		{Title: "Artist Series: Veronique Meignaud", URI: "https://scryfall.com/search?q=meignaud"},
 	}
 	edition := []CardData{
 		{Name: "Felidar Guardian", Number: "2821"},
@@ -882,6 +883,14 @@ func TestMatchEdition(t *testing.T) {
 			name:    "same count, aligned by name",
 			title:   "Lofi Girl Foil Edition",
 			search:  fakeSearch{results: map[string][]CardData{"lofi": edition}},
+			cards:   []CardData{{Name: "Sol Ring", Number: "2822", Count: 1, Foil: true}, {Name: "Felidar Guardian", Number: "2821", Count: 1, Foil: true}},
+			matched: true,
+		},
+		{
+			// Scryfall drops the accent Wizards puts in the title
+			name:    "accents are ignored",
+			title:   "Artist Series: Véronique Meignaud",
+			search:  fakeSearch{results: map[string][]CardData{"meignaud": edition}},
 			cards:   []CardData{{Name: "Sol Ring", Number: "2822", Count: 1, Foil: true}, {Name: "Felidar Guardian", Number: "2821", Count: 1, Foil: true}},
 			matched: true,
 		},
