@@ -2,7 +2,7 @@ module github.com/mtgban/sldownloader
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
 	github.com/BlueMonday/go-scryfall v0.10.0
