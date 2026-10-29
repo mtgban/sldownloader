@@ -11,7 +11,7 @@ require (
 	github.com/lithammer/fuzzysearch v1.1.8
 	github.com/otiai10/gosseract/v2 v2.4.1
 	go.uber.org/ratelimit v0.3.1
-	golang.org/x/text v0.42.0
+	golang.org/x/text v0.43.0
 )
 
 require (
@@ -19,5 +19,5 @@ require (
 	github.com/benbjohnson/clock v1.3.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
-	golang.org/x/net v0.60.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
 )
