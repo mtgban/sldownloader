@@ -87,6 +87,7 @@ for the whole run:
 
 ```
 crawl(pageOpt):
+  known := knownProducts(".")         # §4.3; unreadable directory: exit 1
   for page := pageOpt; ; page++:
     if interrupted: record "interrupted" on this page, STOP
     resp, err := getProducts(page * 50)   # Scalefast API, 50 items/page
@@ -98,6 +99,7 @@ crawl(pageOpt):
       if any of product.Descriptions[*].Title matches the skip list (§4.1):
         print `"<title>",<releaseDate>` to stdout, skip this product
         continue
+      if product.ProductID is in known: count it known, continue  # §4.3
       scrape & dump productURL + product.ProductID (§5, §6)
         on error: record a failure for this product, continue
         on success: count one decklist written
@@ -106,7 +108,7 @@ crawl(pageOpt):
 
 print one "FAILED <failure>" line per failure    # see §4.2
 print "NEXT_PAGE=<nextPage>"
-exit 1 if nothing was written and something failed,
+exit 1 if nothing was written or known and something failed,
        or there were no products at all, or interrupted; else 0  # see §7
 ```
 
@@ -167,21 +169,41 @@ summary and, when it opens one, in the upstream PR body.
 `NEXT_PAGE` is the **last page that returned products**, not the first
 empty page past it: new products land at the end of the catalog
 (Scalefast sorts by `release_date`), so that page is re-scraped next run
-to pick up anything added to it since. The workflow only opens a PR for
-genuinely new files (git untracked-file detection), so re-scraping an
-already-committed product changes nothing. If a product or catalog page
+to pick up anything added to it since. The products on it that upstream
+already has are not scraped again (§4.3), and the workflow opens a PR only
+for the files that are new to the upstream checkout (git untracked-file
+detection). If a product or catalog page
 failed on an earlier page, `NEXT_PAGE` is that page instead, so the next
 run retries it. A run that got no products at all prints the page it
 started from.
 
-The exit code (§7) is `0` whenever at least one decklist was written, even
-if other products failed — the run is still useful, and its failures are
+The exit code (§7) is `0` whenever at least one decklist was written or
+already there (§4.3), even if other products failed — the run is still useful, and its failures are
 listed for someone to look at. It is also `0` when every product found was
 on the skip list: a page of nothing but bundles is not a broken run. It is
 `1` only when nothing was written because something went wrong (a product
 or catalog page failed), or when the catalog had no products at all from
 the start page on (a wrong `SLD_LAST_PAGE`). A `1` stops the workflow
 before it opens a PR or moves `SLD_LAST_PAGE`.
+
+### 4.3 Products already upstream (`knownProducts`)
+
+Before crawling, `knownProducts` reads every `.txt` file in the working
+directory, which the daily workflow points at `data/sld/sld` in the
+upstream checkout, and collects the product ID from each
+`// SOURCE: https://secretlair.wizards.com/<path>/product/<id>` line
+(§6.1); `/us/` and `/us/en/` links name the same product. A product whose
+`ProductID` is among them is not scraped or written, and counts as
+`known` in the run's report and its `Wrote N decklists, N already there`
+log line.
+
+The ID is used instead of the file name because upstream renames
+decklists after merging them (e.g. `怪異学校 — Strange School.txt` became
+`Strange School.txt`), and the SOURCE line survives a rename. Matching by
+file name would write a renamed decklist again under its old name and
+propose it upstream as new. A decklist whose SOURCE is not a Wizards product
+page (an mtg.wiki or Reddit link) protects no product, so its product is
+still scraped, and kept out of the PR only if its file name is unchanged.
 
 ---
 
@@ -420,9 +442,10 @@ unnumbered (§6.1).
 | Explicit-URL mode, **all** URLs scraped/dumped successfully | `0` |
 | Explicit-URL mode, **any** URL failed (all URLs are still attempted) | `1` |
 | Catalog-crawl mode, `-page` not given (stays at default `-1`) | `1` |
-| Catalog-crawl mode, at least one decklist written (failures listed as `FAILED` lines, §4.2) | `0` |
+| Catalog-crawl mode, the existing decklists cannot be read (`knownProducts` errors, §4.3) | `1` |
+| Catalog-crawl mode, at least one decklist written or already there (§4.3; failures listed as `FAILED` lines, §4.2) | `0` |
 | Catalog-crawl mode, no decklist written but nothing failed either, because every product found was on the skip list | `0` |
-| Catalog-crawl mode, no decklist written and something failed (every product that was not skipped failed, or the first catalog fetch failed) | `1` |
+| Catalog-crawl mode, no decklist written or already there and something failed (every product that was not skipped failed, or the first catalog fetch failed) | `1` |
 | Catalog-crawl mode, no products at all from the start page on (start page past the end of the catalog) | `1` |
 | Either mode, interrupted by SIGINT or SIGTERM (§4) | `1` |
 
