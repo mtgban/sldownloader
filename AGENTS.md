@@ -106,7 +106,7 @@ due to network I/O and the Scryfall rate limiter (2 searches/s, see §4.4).
 | File | Contents |
 |---|---|
 | [Makefile](Makefile) | `build`, `vet`, `test`, `lint` and `check`, with the macOS cgo flags set (§2). |
-| [main.go](main.go) | Everything except the Scryfall client: the CLI (`run`, `-version`), the catalog crawl and its report (`crawl`, `crawlReport`, `getProducts`), fetching (`httpGet`), product-page scraping (`scrapeProduct`, run as `fetchProductPage`, `parseCardList`, `matchEdition`, `ocrNumbers` and `backfillNumbers`), name and title cleaning (`cleanLine`, `cardNames`, `cleanTitle`, `nameTags`), OCR (`getNumberFromLink`, `extractNumber`), and file output (`formatCards`, `dumpCards`). |
+| [main.go](main.go) | Everything except the Scryfall client: the CLI (`run`, `-version`), the catalog crawl and its report (`crawl`, `crawlReport`, `getProducts`, and `knownProducts`, which skips products whose decklist is already upstream under any file name), fetching (`httpGet`), product-page scraping (`scrapeProduct`, run as `fetchProductPage`, `parseCardList`, `matchEdition`, `ocrNumbers` and `backfillNumbers`), name and title cleaning (`cleanLine`, `cardNames`, `cleanTitle`, `nameTags`), OCR (`getNumberFromLink`, `extractNumber`), and file output (`formatCards`, `dumpCards`). |
 | [scryfall.go](scryfall.go) | The Scryfall integration: scraping `scryfall.com/sets/sld` for per-edition search headers (`loadScryfallHeaders`), the card-name catalog that protects real names from `cleanLine` (`loadCardNames`), the rate-limited shared client (`getScryfallClient`), and card search (`search`, `searchWithClient`, `searchURI`), which tells "no such card" apart from a Scryfall failure (`isScryfallError`). |
 | [main_test.go](main_test.go) | Table-driven tests for the string helpers (`cleanLine`, `cleanTitle`, `matchCardNumbers` and the rest), and offline tests of every pipeline step: `parseCardList`, `galleryFoldMode`, `parseEditionHeaders` and `scrapeProduct` on short hand-written HTML snippets (`scrapeProduct` and `httpGet` through a local `httptest` server), `matchEdition` and `backfillNumbers` against canned search results (`fakeSearch`), `searchWithClient` and `searchCache` against replayed Scryfall replies, `getNumberFromLink` on a blank image, and the crawl's report and interruption. No product page is saved into the repo. |
 | [.github/workflows/new-sld-pr.yml](.github/workflows/new-sld-pr.yml) | The daily automation: build the tool, run it against a page range remembered in a GitHub Actions repo variable (`SLD_LAST_PAGE`), diff the output against a fork of `taw/magic-preconstructed-decks`, push a branch, open a PR upstream. Runs no tests itself. |
@@ -285,8 +285,9 @@ code safely*:
 
 There is no persistence or database, and the only cache is Scryfall search
 results kept in memory for one run (`searchCache`). Every run is stateless except
-for the `-page` counter, which in CI is round-tripped through a GitHub
-Actions repo variable (`SLD_LAST_PAGE`) — see workflow file §3 above and
+for the decklists already in the working directory, whose `// SOURCE:`
+product IDs it does not scrape again (`knownProducts`), and the `-page`
+counter, which in CI is round-tripped through a GitHub Actions repo variable (`SLD_LAST_PAGE`) — see workflow file §3 above and
 SPECIFICATIONS.md §4.2 for the exact contract of what the tool prints
 (`FAILED` lines, `NEXT_PAGE=`) and its exit code. Changing that output
 means changing the workflow's parsing in the same PR.

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"runtime/debug"
 	"slices"
@@ -1125,13 +1126,20 @@ func run() int {
 		return 1
 	}
 
-	report := crawl(ctx, headers, names, *pageOpt, *doOCROpt)
+	// Decklists are written to the working directory, next to those already there
+	known, err := knownProducts(".")
+	if err != nil {
+		log.Println("Unable to read the existing decklists:", err)
+		return 1
+	}
+
+	report := crawl(ctx, headers, names, known, *pageOpt, *doOCROpt)
 
 	for _, failure := range report.failures {
 		fmt.Println("FAILED", failure)
 	}
-	log.Printf("Wrote %d decklists, %d failed, in the future you can start from page %d",
-		report.written, len(report.failures), report.nextPage)
+	log.Printf("Wrote %d decklists, %d already there, %d failed, in the future you can start from page %d",
+		report.written, report.known, len(report.failures), report.nextPage)
 	fmt.Printf("NEXT_PAGE=%d\n", report.nextPage)
 
 	if report.failed() || ctx.Err() != nil {
@@ -1167,8 +1175,10 @@ func isSkipped(title string) bool {
 type crawlReport struct {
 	// Products found in the catalog, including skipped ones
 	products int
-	// Decklists written, including those already upstream
+	// Decklists written
 	written int
+	// Products not scraped because a decklist already names them (knownProducts)
+	known int
 	// Where the next crawl should start
 	nextPage int
 	// One line per product, or catalog page, that failed
@@ -1190,9 +1200,10 @@ func (r *crawlReport) fail(page int, failure string) {
 // Whether the crawl produced nothing because something went wrong: every
 // product failed, the catalog could not be fetched, or it had no products
 // from the start page on. A partial failure is only listed for someone to
-// look at, and a page of nothing but skipped products is not a failure
+// look at, a page of nothing but skipped products is not a failure, and a
+// product with a decklist already counts as one written
 func (r *crawlReport) failed() bool {
-	return r.written == 0 && (len(r.failures) > 0 || r.products == 0)
+	return r.written+r.known == 0 && (len(r.failures) > 0 || r.products == 0)
 }
 
 // Where the next crawl should start: the last page with products, where new
@@ -1209,9 +1220,35 @@ func (r *crawlReport) resumePage(startPage, lastPage int) int {
 	return page
 }
 
+// The product page of a decklist's SOURCE line, with the product ID in it
+var sourceProductRegexp = regexp.MustCompile(`(?m)^// SOURCE: https://secretlair\.wizards\.com/\S*/product/(\d+)\s*$`)
+
+// The IDs of the products whose decklists are in dir, read off their SOURCE
+// lines: upstream renames decklists, so a file name does not identify one
+func knownProducts(dir string) (map[string]bool, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	known := map[string]bool{}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".txt" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		for _, match := range sourceProductRegexp.FindAllSubmatch(data, -1) {
+			known[string(match[1])] = true
+		}
+	}
+	return known, nil
+}
+
 // Crawl the catalog from startPage up to the first empty page, writing out a
-// decklist for every product not on the skip list
-func crawl(ctx context.Context, headers []scryfallHeader, names *cardNames, startPage int, doOCR bool) crawlReport {
+// decklist for every product not on the skip list and not already known
+func crawl(ctx context.Context, headers []scryfallHeader, names *cardNames, known map[string]bool, startPage int, doOCR bool) crawlReport {
 	var report crawlReport
 	lastPage := -1
 
@@ -1248,6 +1285,10 @@ pages:
 				}
 			}
 			if shouldSkip {
+				continue
+			}
+			if known[product.ProductID] {
+				report.known++
 				continue
 			}
 

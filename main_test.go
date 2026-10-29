@@ -8,10 +8,12 @@ import (
 	"image"
 	"image/draw"
 	"image/png"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -595,6 +597,9 @@ func TestCrawlReportFailed(t *testing.T) {
 		{"every product skipped", crawlReport{products: 1}, false},
 		{"every product failed", crawlReport{products: 2, failures: []string{"x", "y"}}, true},
 		{"skipped and failed, nothing written", crawlReport{products: 2, failures: []string{"x"}}, true},
+		// The daily run's usual page, where every product is upstream already
+		{"every product known", crawlReport{products: 46, known: 46}, false},
+		{"known and failed, nothing written", crawlReport{products: 46, known: 45, failures: []string{"x"}}, false},
 		{"first catalog fetch failed", crawlReport{failures: []string{"catalog page 21: boom"}}, true},
 		{"past the end of the catalog", crawlReport{}, true},
 	}
@@ -1131,13 +1136,43 @@ func TestSearchCache(t *testing.T) {
 	}
 }
 
+func TestKnownProducts(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		// Renamed upstream from "怪異学校 — Strange School.txt"
+		"Strange School.txt": "// NAME: Strange School\n// SOURCE: https://secretlair.wizards.com/us/product/1255732\n// DATE: 2026-11-18\n1 [SLD:2709] Attrition\n",
+		"Localized.txt":      "// NAME: Localized\n// SOURCE: https://secretlair.wizards.com/us/en/product/1234567\n",
+		"Wiki.txt":           "// NAME: Wiki\n// SOURCE: https://mtg.wiki/wiki/Secret_Lair_Drop_Series:_Purrfection\n",
+		"Unnamed.txt":        "1 [SLD:1] Island\n",
+		"notes.md":           "// SOURCE: https://secretlair.wizards.com/us/product/7654321\n",
+	}
+	for name, text := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	known, err := knownProducts(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"1255732": true, "1234567": true}
+	if !maps.Equal(known, want) {
+		t.Errorf("knownProducts() = %v, want %v", known, want)
+	}
+
+	if _, err := knownProducts(filepath.Join(dir, "missing")); err == nil {
+		t.Error("knownProducts() on a missing directory: no error")
+	}
+}
+
 func TestCrawlInterrupted(t *testing.T) {
 	// Cancelled before it starts, as by Ctrl-C: nothing is fetched, and
 	// the next crawl resumes on the page this one stopped at
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	report := crawl(ctx, nil, nil, 20, false)
+	report := crawl(ctx, nil, nil, nil, 20, false)
 	want := []string{"interrupted: context canceled"}
 	if !slices.Equal(report.failures, want) || report.written != 0 || report.nextPage != 20 {
 		t.Errorf("crawl() = %+v, want failures %q, nothing written, next page 20", report, want)
