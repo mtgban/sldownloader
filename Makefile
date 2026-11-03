@@ -6,7 +6,7 @@
 GO ?= $(shell command -v go 2>/dev/null || echo /opt/homebrew/bin/go)
 GOFMT ?= $(dir $(GO))gofmt
 REVIVE_VERSION := v1.13.0
-STATICCHECK_VERSION := 2026.2.1
+STATICCHECK_VERSION := 2026.2.2
 
 ifeq ($(shell uname -s),Darwin)
 BREW ?= $(shell command -v brew 2>/dev/null || echo /opt/homebrew/bin/brew)
