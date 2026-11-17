@@ -137,7 +137,8 @@ English — has a `Title` containing any of the following substrings
 
 ```
 Bundle, BUNDLE, Festival in a Box, Transformers TCG, DRAGON’S ENDGAME,
-[both "Secret Lair" AND "Deck" in the same title], They're Just Like Us but,
+[both "Secret Lair" AND "Deck", but not "Decks", in the same title],
+They're Just Like Us but,
 Heads I Win, Tails, Deluxe Collection, Heroes of the Borderlands,
 Welcome to the Hellfire Club, D&D Sapphire Anniversary, Fan Merch,
 30th Anniversary Edition, Japanese, " JP", " SP", Countdown Kit,
