@@ -386,6 +386,26 @@ func TestExtractNumber(t *testing.T) {
 	}
 }
 
+func TestIsSkipped(t *testing.T) {
+	tests := []struct {
+		title string
+		want  bool
+	}{
+		{"Secret Lair Commander Deck: Goblin Storm", true},
+		{"Secret Lair Dandân Deck", true},
+		{"Secret Lair x Star Trek: Lower Decks", false},
+		{"Secret Lair x Star Trek: Lower Decks Foil Edition", false},
+		{"Secret Lair x Star Trek: Beam Me Up", false},
+		{"Warp Core Foil Bundle", true},
+	}
+
+	for _, tt := range tests {
+		if got := isSkipped(tt.title); got != tt.want {
+			t.Errorf("isSkipped(%q) = %v, expected %v", tt.title, got, tt.want)
+		}
+	}
+}
+
 func TestCleanTitle(t *testing.T) {
 	tests := []struct {
 		title    string

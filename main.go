@@ -1155,7 +1155,8 @@ func isSkipped(title string) bool {
 		strings.Contains(title, "Festival in a Box") ||
 		strings.Contains(title, "Transformers TCG") ||
 		strings.Contains(title, "DRAGON’S ENDGAME") ||
-		(strings.Contains(title, "Secret Lair") && strings.Contains(title, "Deck")) ||
+		// Commander Decks and the Dandân Deck, not "Star Trek: Lower Decks"
+		(strings.Contains(title, "Secret Lair") && strings.Contains(title, "Deck") && !strings.Contains(title, "Decks")) ||
 		strings.Contains(title, "They're Just Like Us but") ||
 		strings.Contains(title, "Heads I Win, Tails") ||
 		strings.Contains(title, "Deluxe Collection") ||
