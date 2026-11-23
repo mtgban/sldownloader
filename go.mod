@@ -5,17 +5,17 @@ go 1.26.0
 toolchain go1.26.11
 
 require (
-	github.com/BlueMonday/go-scryfall v0.10.0
-	github.com/PuerkitoBio/goquery v1.13.0
+	github.com/BlueMonday/go-scryfall v0.11.0
+	github.com/PuerkitoBio/goquery v1.14.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/lithammer/fuzzysearch v1.1.8
 	github.com/otiai10/gosseract/v2 v2.4.1
 	go.uber.org/ratelimit v0.3.1
-	golang.org/x/text v0.43.0
+	golang.org/x/text v0.44.0
 )
 
 require (
-	github.com/andybalholm/cascadia v1.3.4 // indirect
+	github.com/andybalholm/cascadia v1.3.5 // indirect
 	github.com/benbjohnson/clock v1.3.0 // indirect
 	github.com/google/go-querystring v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
